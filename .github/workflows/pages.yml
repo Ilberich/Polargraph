@@ -39,7 +39,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # enablement: true provisions Pages via the API on first run, so a
+      # fresh clone of this repo deploys without anyone visiting Settings.
+      # Without it the job fails with "Get Pages site failed / Not Found"
+      # until Pages is switched on by hand.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       # The app is plain static files with no build step, so the source
       # directory is the artifact. The same directory is what gets copied to
