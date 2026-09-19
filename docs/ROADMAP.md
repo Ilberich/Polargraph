@@ -84,7 +84,14 @@ The features that make output good rather than merely correct.
   endpoint merging within tolerance into continuous strokes; per-path direction
   choice. Runs in continuous-line mode while `penLift` is false (AD-2).
 - **Hatch fill:** polygon flattening, scanline intersection with fill-rule
-  handling, configurable angle and spacing, single and cross.
+  handling, configurable angle and spacing, single and cross. Which shapes are
+  filled is chosen with a fill tool, one shape at a time — filling everything
+  closed is rarely what a drawing wants. Clicking inside a shape is what picks
+  it, and the smallest containing shape wins, so the hole of a ring can be
+  chosen separately from the ring.
+  - A fill carries its own layer rather than its outline's. Shapes filled onto
+    the same layer are hatched as one group, so the fill rule still means
+    something across them: one fill, one colour, holes and all.
 - **Layers:** done. A layer is a pen. Membership is held against stable path
   ids rather than positions, so it survives the optimizer reordering,
   reversing and merging paths. Optimization runs *within* a layer and never
@@ -92,10 +99,12 @@ The features that make output good rather than merely correct.
   the wrong colour. Each boundary emits `G28` then `M0`, because the swap
   happens wherever the gondola is standing and reaching into a half-finished
   drawing is how it gets smudged.
-- **Paint selection:** done. A mode on one object, entered from the transform
-  card, that locks moving and scaling and gives two tools: a brush that takes
-  the segments it is dragged across, and a picker that takes a whole stroke.
-  The selection goes onto an existing pen or a new one.
+- **Paint selection:** done. A mode on one object — the Paint tab is the mode —
+  that locks dragging on the canvas and gives two tools: a brush that takes the
+  segments it is dragged across, and a picker that takes a whole stroke. Each
+  stroke lands on the selected layer when the pointer comes up; nothing about
+  the gcode needs a separate step to confirm it. Alt, or the Erase toggle,
+  sends strokes back to the object's own layer.
   - A partly painted stroke is cut in two so its painted run can carry a
     different pen. The pieces meet end to end, so the drawn geometry is
     unchanged and the optimizer's merge rejoins them if they end up on the
@@ -103,6 +112,9 @@ The features that make output good rather than merely correct.
   - Cut pieces record what they came from, and a fill is worked out from the
     rejoined outline. Painting half the edge of a filled shape therefore
     leaves its hatch exactly as it was — an outline in pieces has no inside.
+  - Applying is deferred to the end of a stroke rather than done per
+    pointermove: it splits paths and rebuilds the object's path list, which is
+    far too much work to do a hundred times a second.
   - Brush granularity is a whole segment. Curves are flattened finely so the
     brush is fine on them; a long straight run is one segment and is taken
     whole.
@@ -111,6 +123,10 @@ The features that make output good rather than merely correct.
   acceleration; live update.
 - **Pen depth authoring:** per-path and along-path Z, previewed as variable line
   weight.
+
+- **Panel layout:** objects, layers, paint and fill share one tabbed card. Only
+  one of them is ever being worked on, and stacked they pushed everything else
+  off the bottom of the panel.
 
 **Done when:** a multi-layer hatched drawing exports with optimized ordering and
 an accurate time estimate.

@@ -268,7 +268,7 @@ export function rotateHandlePosition(placement, viewport) {
   return { x: top.x, y: top.y - ROTATE_HANDLE_OFFSET };
 }
 
-function drawSelection(ctx, placement, viewport, theme) {
+function drawSelection(ctx, placement, viewport, theme, { handles = true } = {}) {
   const b = placementBounds(placement);
   const topLeft = toScreen(viewport, { x: b.minX, y: b.minY });
   const width = b.width * viewport.scale;
@@ -280,6 +280,13 @@ function drawSelection(ctx, placement, viewport, theme) {
   ctx.setLineDash([3, 3]);
   ctx.strokeRect(topLeft.x + 0.5, topLeft.y + 0.5, width, height);
   ctx.setLineDash([]);
+
+  // A canvas tool locks moving and resizing, so the grips that would do it are
+  // not offered — only the outline saying what is being worked on.
+  if (!handles) {
+    ctx.restore();
+    return;
+  }
 
   const rotateAt = rotateHandlePosition(placement, viewport);
   ctx.beginPath();
@@ -341,7 +348,7 @@ function drawGuides(ctx, guides, viewport, size, theme) {
 
 /** Draw the whole scene. */
 export function render(canvas, {
-  scene, viewport, selectedId = null, guides = [], gridMm = 0, paint = null,
+  scene, viewport, selectedId = null, guides = [], gridMm = 0, tool = null, paint = null,
 }) {
   const { width, height, ratio } = resizeCanvas(canvas);
   const ctx = canvas.getContext('2d');
@@ -355,28 +362,28 @@ export function render(canvas, {
   drawGrid(ctx, scene, viewport, theme, gridMm);
   drawMargins(ctx, scene, viewport, theme);
 
-  // Painting highlights parts of one object, so that object is drawn in its
-  // own pen colours rather than as a selection — otherwise the highlight would
-  // be accent on accent, and invisible.
-  const painted = paint
-    ? scene.placements.find((p) => p.id === paint.placementId)
-    : null;
+  // An object being painted or filled is drawn in its own layer colours rather
+  // than as a selection. Colour is the whole point of both tools: accent on
+  // accent would hide the fill that was just made, and the paint highlight
+  // with it.
+  const worked = tool ? scene.placements.find((p) => p.id === tool) : null;
 
   for (const placement of scene.placements) {
-    const selected = placement.id === selectedId && placement !== painted;
+    const selected = placement.id === selectedId && placement !== worked;
     drawPlacement(ctx, placement, viewport, theme, selected, scene.layers ?? []);
   }
 
-  if (painted && painted.visible) {
-    drawPaintSelection(ctx, painted, viewport, theme, paint.selection);
+  if (paint && worked && worked.visible) {
+    drawPaintSelection(ctx, worked, viewport, theme, paint.selection);
     if (paint.cursor && paint.tool === 'brush') {
       drawBrush(ctx, paint.cursor, paint.radiusPx, theme);
     }
   }
 
-  // Handles move and resize, which painting locks out, so they are not shown.
-  const selected = painted ? null : scene.placements.find((p) => p.id === selectedId);
-  if (selected && selected.visible) drawSelection(ctx, selected, viewport, theme);
+  const selected = scene.placements.find((p) => p.id === selectedId);
+  if (selected && selected.visible) {
+    drawSelection(ctx, selected, viewport, theme, { handles: selected !== worked });
+  }
 
   drawGuides(ctx, guides, viewport, { width, height }, theme);
 

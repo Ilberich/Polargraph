@@ -6,9 +6,9 @@
  * incremental updates quietly do.
  */
 
-import { el, clear, numberField, checkboxField, button, card } from './dom.js';
+import { el, clear, numberField, checkboxField, button, card, tabbedCard } from './dom.js';
 import { marginBox, outsideMargins } from '../core/scene/scene.js';
-import { placementBounds, placementLength, canHatch } from '../core/scene/placement.js';
+import { placementBounds, placementLength, canHatch, fillableShapes } from '../core/scene/placement.js';
 import { formatDuration } from '../core/gcode/estimate.js';
 import { el as element } from './dom.js';
 import { BUILD } from '../build.js';
@@ -41,11 +41,11 @@ function paperCard(state, actions) {
   ]);
 }
 
-function objectsCard(state, actions) {
+function objectsPane(state, actions) {
   const { placements } = state.scene;
 
   if (placements.length === 0) {
-    return card('Objects', el('p', { class: 'empty' }, 'Import an SVG or gcode file to begin.'));
+    return el('p', { class: 'empty' }, 'Import an SVG or gcode file to begin.');
   }
 
   // Drawn back to front, so the topmost object is listed first.
@@ -62,7 +62,7 @@ function objectsCard(state, actions) {
           e.stopPropagation();
           actions.update(placement.id, { visible: !placement.visible });
         },
-      }, placement.visible ? '●' : '○'),
+      }, placement.visible ? '\u25cf' : '\u25cb'),
 
       el('span', { class: 'object__name', title: placement.name }, placement.name),
       el('span', { class: 'object__kind' }, placement.kind),
@@ -75,11 +75,11 @@ function objectsCard(state, actions) {
           e.stopPropagation();
           actions.remove(placement.id);
         },
-      }, '×'),
+      }, '\u00d7'),
     ])
   );
 
-  return card('Objects', el('div', { class: 'object-list' }, rows));
+  return el('div', { class: 'object-list' }, rows);
 }
 
 function transformCard(state, actions) {
@@ -115,7 +115,7 @@ function transformCard(state, actions) {
       el('dd', { class: 'spec__value' }, `${mm(placementLength(placement))} mm`),
     ]),
 
-    penRow(state, actions, placement),
+    layerRow(state, actions, placement),
 
     el('div', { class: 'button-row' }, [
       button({ label: 'Fit to margins', onClick: () => actions.fit(placement.id) }),
@@ -125,165 +125,20 @@ function transformCard(state, actions) {
       button({ label: 'Bring forward', onClick: () => actions.reorder(placement.id, 1) }),
       button({ label: 'Send back', onClick: () => actions.reorder(placement.id, -1) }),
     ]),
-    el('div', { class: 'button-row' }, [
-      button({
-        label: 'Paint\u2026',
-        title: 'Choose part of this object and put it on another pen',
-        onClick: () => actions.startPaint(placement.id),
-      }),
-    ]),
-  ]);
-}
-
-/** Sentinel value for the pen that does not exist yet. */
-export const NEW_PEN = '__new__';
-
-/**
- * Paint mode: choosing part of an object for another pen.
- *
- * Replaces the transform card while it is on, because the mode locks moving,
- * scaling and rotating — leaving the fields there would offer the one thing
- * the mode has taken away.
- */
-function paintCard(state, actions) {
-  const { paint } = state;
-  const placement = state.scene.placements.find((p) => p.id === paint.placementId);
-  if (!placement) return null;
-
-  const { layers } = state.scene;
-  const chosen = paint.selection.size;
-
-  const tool = (value, label, hint) =>
-    button({
-      label,
-      title: hint,
-      variant: paint.tool === value ? 'button--primary' : '',
-      onClick: () => actions.setPaintTool(value),
-    });
-
-  const target = el('select', {
-    class: 'field__input',
-    id: 'paint-target',
-    onchange: (e) => actions.setPaintTarget(e.target.value),
-  }, [
-    element('option', { value: '', selected: paint.target === '' }, 'This object\u2019s pen'),
-    ...layers.map((layer) =>
-      element('option', { value: layer.id, selected: paint.target === layer.id }, layer.name)),
-    element('option', { value: NEW_PEN, selected: paint.target === NEW_PEN }, 'New pen\u2026'),
-  ]);
-
-  return card('Paint', [
-    el('p', { class: 'hint' }, `Painting ${placement.name}. Moving is locked while this is on.`),
-
-    el('div', { class: 'button-row' }, [
-      tool('brush', 'Brush', 'Take the part of a stroke you drag across'),
-      tool('whole', 'Whole stroke', 'Take a whole stroke at a time'),
-    ]),
-
-    paint.tool === 'brush' && numberField({
-      label: 'Brush', value: paint.radiusPx, min: 1, step: 2, unit: 'px', id: 'paint-radius',
-      onCommit: (v) => actions.setPaintRadius(v),
-    }),
-
-    checkboxField({
-      label: 'Erase', checked: paint.erase === true, id: 'paint-erase',
-      onChange: (v) => actions.setPaintErase(v),
-    }),
-
-    el('p', { class: 'hint' }, 'Drag to add. Hold Alt, or turn on Erase, to take back.'),
-
-    el('dl', { class: 'spec' }, [
-      el('dt', { class: 'spec__key' }, 'Selected'),
-      el('dd', { class: 'spec__value' },
-        chosen === 0 ? 'nothing yet' : `${chosen} stroke${chosen === 1 ? '' : 's'}`),
-    ]),
-
-    el('label', { class: 'field' }, [
-      el('span', { class: 'field__label' }, 'Pen'),
-      el('span', { class: 'field__control' }, [target]),
-    ]),
-
-    el('div', { class: 'button-row' }, [
-      button({
-        label: 'Add to pen',
-        variant: 'button--primary',
-        onClick: actions.assignPaintSelection,
-      }),
-      button({ label: 'Select all', onClick: actions.selectAllPaint }),
-      button({ label: 'Clear', onClick: actions.clearPaintSelection }),
-    ]),
-
-    el('div', { class: 'button-row' }, [
-      button({ label: 'Done', onClick: actions.endPaint }),
-    ]),
-  ].filter(Boolean));
-}
-
-/**
- * Hatch fill for the selected object.
- *
- * Only offered when there is something closed to fill — an open path has no
- * inside, and a control that silently does nothing is worse than one that is
- * not there.
- */
-function fillCard(state, actions) {
-  const placement = state.scene.placements.find((p) => p.id === state.selectedId);
-  if (!placement) return null;
-
-  if (!canHatch(placement)) {
-    return card('Fill', el('p', { class: 'empty' },
-      'This object has no closed shapes, so there is nothing to fill.'));
-  }
-
-  const { hatch } = placement;
-  const update = (changes) =>
-    actions.update(placement.id, { hatch: { ...hatch, ...changes } });
-
-  return card('Fill', [
-    el('div', { class: 'stack' }, [
-      checkboxField({
-        label: 'Hatch fill', checked: hatch.enabled, id: 'fill-enabled',
-        onChange: (v) => update({ enabled: v }),
-      }),
-      hatch.enabled && checkboxField({
-        label: 'Crosshatch', checked: hatch.cross, id: 'fill-cross',
-        onChange: (v) => update({ cross: v }),
-      }),
-      // Two overlapping shapes can either knock a hole in each other or merge
-      // into one solid region. Both are wanted often enough that guessing is
-      // worse than asking — a ring needs its middle left open, two overlapping
-      // blobs usually do not.
-      hatch.enabled && checkboxField({
-        label: 'Overlaps make holes', checked: hatch.rule === 'evenodd',
-        id: 'fill-holes',
-        onChange: (v) => update({ rule: v ? 'evenodd' : 'nonzero' }),
-      }),
-    ]),
-
-    hatch.enabled && el('div', { class: 'field-grid' }, [
-      numberField({
-        label: 'Spacing', value: hatch.spacingMm, min: 0.1, step: 0.5, unit: 'mm',
-        id: 'fill-spacing',
-        onCommit: (v) => update({ spacingMm: v }),
-      }),
-      numberField({
-        label: 'Angle', value: hatch.angleDeg, step: 5, unit: '°',
-        id: 'fill-angle',
-        onCommit: (v) => update({ angleDeg: v }),
-      }),
-    ]),
-
   ]);
 }
 
 /**
- * Layers: the pens, in the order they will be swapped.
+ * Layers: which pen draws what, in the order they will be swapped.
  *
  * Order is the point of this list, not decoration — it is the sequence the
- * machine will stop for. Colour is the pen's own ink, shown so the canvas can
- * be read at a glance.
+ * machine will stop for. Colour is the ink that will be in the holder, shown
+ * so the canvas can be read at a glance.
+ *
+ * The selected layer is also where paint and fill put what they touch, so
+ * choosing one here is the same act as choosing one on those tabs.
  */
-function layersCard(state, actions) {
+function layersPane(state, actions) {
   const { layers } = state.scene;
 
   const rows = layers.map((layer, index) => {
@@ -291,7 +146,7 @@ function layersCard(state, actions) {
       class: 'layer__colour',
       type: 'color',
       value: layer.color,
-      title: 'Pen colour',
+      title: 'Layer colour',
       id: `layer-colour-${layer.id}`,
       onchange: (e) => actions.updateLayer(layer.id, { color: e.target.value }),
       onclick: (e) => e.stopPropagation(),
@@ -310,7 +165,7 @@ function layersCard(state, actions) {
       class: `layer ${layer.id === state.selectedLayerId ? 'layer--selected' : ''}`.trim(),
       onclick: () => actions.selectLayer(layer.id),
     }, [
-      el('span', { class: 'layer__order', title: `Pen ${index + 1} of ${layers.length}` },
+      el('span', { class: 'layer__order', title: `Layer ${index + 1} of ${layers.length}` },
         String(index + 1)),
       swatch,
       name,
@@ -322,28 +177,29 @@ function layersCard(state, actions) {
           e.stopPropagation();
           actions.updateLayer(layer.id, { visible: !layer.visible });
         },
-      }, layer.visible ? '●' : '○'),
+      }, layer.visible ? '\u25cf' : '\u25cb'),
       el('button', {
         class: 'object__remove',
         type: 'button',
-        title: 'Remove pen',
+        title: 'Remove layer',
         onclick: (e) => {
           e.stopPropagation();
           actions.removeLayer(layer.id);
         },
-      }, '×'),
+      }, '\u00d7'),
     ]);
   });
 
   const selected = layers.find((l) => l.id === state.selectedLayerId);
 
-  return card('Layers', [
+  return [
     layers.length === 0
-      ? el('p', { class: 'empty' }, 'One pen for everything. Add a layer to plot in more than one colour.')
+      ? el('p', { class: 'empty' },
+        'One pen for everything. Add a layer to plot in more than one colour.')
       : el('div', { class: 'object-list' }, rows),
 
     el('div', { class: 'button-row' }, [
-      button({ label: 'Add pen', onClick: actions.addLayer }),
+      button({ label: 'Add layer', onClick: actions.addLayer }),
       selected && button({
         label: 'Move up',
         onClick: () => actions.reorderLayer(selected.id, -1),
@@ -353,11 +209,11 @@ function layersCard(state, actions) {
         onClick: () => actions.reorderLayer(selected.id, 1),
       }),
     ].filter(Boolean)),
-  ]);
+  ];
 }
 
-/** Which pen draws the selected object. */
-function penRow(state, actions, placement) {
+/** Which layer draws the selected object, unless a stroke says otherwise. */
+function layerRow(state, actions, placement) {
   const { layers } = state.scene;
   if (layers.length === 0) return null;
 
@@ -373,9 +229,177 @@ function penRow(state, actions, placement) {
   ]);
 
   return el('label', { class: 'field' }, [
-    el('span', { class: 'field__label' }, 'Pen'),
+    el('span', { class: 'field__label' }, 'Layer'),
     el('span', { class: 'field__control' }, [select]),
   ]);
+}
+
+/** Sentinel for "put it on a layer that does not exist yet". */
+export const NEW_LAYER = '__new__';
+
+/**
+ * Where paint and fill put what they touch.
+ *
+ * The same choice the layers list makes, offered again next to the tools that
+ * use it — a mode whose destination is only visible on another tab is a mode
+ * that paints in the wrong colour.
+ */
+function layerChooser(state, actions, id) {
+  const { layers } = state.scene;
+
+  const select = el('select', {
+    class: 'field__input',
+    id,
+    onchange: (e) => actions.chooseLayer(e.target.value),
+  }, [
+    element('option', { value: '', selected: state.selectedLayerId == null },
+      'This object\u2019s layer'),
+    ...layers.map((layer) =>
+      element('option', { value: layer.id, selected: state.selectedLayerId === layer.id },
+        layer.name)),
+    element('option', { value: NEW_LAYER }, 'New layer\u2026'),
+  ]);
+
+  return el('label', { class: 'field' }, [
+    el('span', { class: 'field__label' }, 'Onto'),
+    el('span', { class: 'field__control' }, [select]),
+  ]);
+}
+
+/**
+ * Painting: putting part of an object onto another layer.
+ *
+ * The tab is the mode. Moving, scaling and rotating on the canvas are locked
+ * while it is open, because choosing part of a stroke accurately is impossible
+ * if the same gesture might drag the object instead.
+ */
+function paintPane(state, actions) {
+  const placement = state.scene.placements.find((p) => p.id === state.selectedId);
+
+  if (!placement) {
+    return el('p', { class: 'empty' },
+      'Select an object to paint part of it onto another layer.');
+  }
+
+  const { paint } = state;
+
+  const tool = (value, label, hint) =>
+    button({
+      label,
+      title: hint,
+      variant: paint.tool === value ? 'button--primary' : '',
+      onClick: () => actions.setPaintTool(value),
+    });
+
+  return [
+    el('p', { class: 'hint' },
+      `Painting ${placement.name}. Dragging on the canvas is locked while this tab is open.`),
+
+    el('div', { class: 'button-row' }, [
+      tool('brush', 'Brush', 'Take the part of a stroke you drag across'),
+      tool('whole', 'Whole stroke', 'Take a whole stroke at a time'),
+    ]),
+
+    paint.tool === 'brush' && numberField({
+      label: 'Brush', value: paint.radiusPx, min: 1, step: 2, unit: 'px', id: 'paint-radius',
+      onCommit: (v) => actions.setPaintRadius(v),
+    }),
+
+    layerChooser(state, actions, 'paint-target'),
+
+    checkboxField({
+      label: 'Erase', checked: paint.erase === true, id: 'paint-erase',
+      onChange: (v) => actions.setPaintErase(v),
+    }),
+
+    el('p', { class: 'hint' },
+      'Each stroke lands when you let go. Hold Alt, or turn on Erase, to put ' +
+      'strokes back on the object\u2019s own layer.'),
+
+    el('div', { class: 'button-row' }, [
+      button({ label: 'Paint all', onClick: actions.paintAll }),
+    ]),
+  ].filter(Boolean);
+}
+
+/**
+ * Filling: choosing which shapes get hatched, and in what colour.
+ *
+ * Which shapes is a per-shape choice — filling everything closed is rarely
+ * what a drawing wants. How they are hatched is one setting for the whole
+ * object, because spacing and angle are chosen against the pen and the paper,
+ * not against a particular shape.
+ */
+function fillPane(state, actions) {
+  const placement = state.scene.placements.find((p) => p.id === state.selectedId);
+
+  if (!placement) {
+    return el('p', { class: 'empty' }, 'Select an object to fill shapes in it.');
+  }
+
+  if (!canHatch(placement)) {
+    return el('p', { class: 'empty' },
+      'This object has no closed shapes, so there is nothing to fill.');
+  }
+
+  const { hatch } = placement;
+  const update = (changes) =>
+    actions.update(placement.id, { hatch: { ...hatch, ...changes } });
+
+  const shapes = fillableShapes(placement).length;
+  const filled = Object.keys(placement.fills ?? {}).length;
+
+  return [
+    el('p', { class: 'hint' },
+      'Click a shape to fill it. Dragging on the canvas is locked while this tab is open.'),
+
+    layerChooser(state, actions, 'fill-target'),
+
+    checkboxField({
+      label: 'Erase', checked: state.fill.erase === true, id: 'fill-erase',
+      onChange: (v) => actions.setFillErase(v),
+    }),
+
+    el('p', { class: 'hint' }, 'Hold Alt, or turn on Erase, to take a fill back.'),
+
+    el('div', { class: 'field-grid' }, [
+      numberField({
+        label: 'Spacing', value: hatch.spacingMm, min: 0.1, step: 0.5, unit: 'mm',
+        id: 'fill-spacing',
+        onCommit: (v) => update({ spacingMm: v }),
+      }),
+      numberField({
+        label: 'Angle', value: hatch.angleDeg, step: 5, unit: '\u00b0',
+        id: 'fill-angle',
+        onCommit: (v) => update({ angleDeg: v }),
+      }),
+    ]),
+
+    el('div', { class: 'stack' }, [
+      checkboxField({
+        label: 'Crosshatch', checked: hatch.cross, id: 'fill-cross',
+        onChange: (v) => update({ cross: v }),
+      }),
+      // Two overlapping shapes filled in the same colour can either knock a
+      // hole in each other or merge into one solid region. Both are wanted
+      // often enough that guessing is worse than asking.
+      checkboxField({
+        label: 'Overlaps make holes', checked: hatch.rule === 'evenodd',
+        id: 'fill-holes',
+        onChange: (v) => update({ rule: v ? 'evenodd' : 'nonzero' }),
+      }),
+    ]),
+
+    el('dl', { class: 'spec' }, [
+      el('dt', { class: 'spec__key' }, 'Filled'),
+      el('dd', { class: 'spec__value' }, `${filled} of ${shapes} shape${shapes === 1 ? '' : 's'}`),
+    ]),
+
+    el('div', { class: 'button-row' }, [
+      button({ label: 'Fill all', onClick: actions.fillAll }),
+      button({ label: 'Clear fills', onClick: actions.clearFills }),
+    ]),
+  ];
 }
 
 function viewCard(state, actions) {
@@ -542,15 +566,34 @@ function outputCard(state, actions) {
   ]);
 }
 
+/**
+ * The tabbed group at the top of the panel.
+ *
+ * Objects, layers, paint and fill are all about the thing being worked on, and
+ * only one of them is ever being worked on at a time. Stacked, they pushed
+ * everything else off the bottom of the panel.
+ */
+const PANES = [
+  { id: 'objects', label: 'Objects', pane: objectsPane },
+  { id: 'layers', label: 'Layers', pane: layersPane },
+  { id: 'paint', label: 'Paint', pane: paintPane },
+  { id: 'fill', label: 'Fill', pane: fillPane },
+];
+
 /** Rebuild the panel into `container`. */
 export function renderPanels(container, state, actions) {
   clear(container);
 
+  const active = PANES.find((p) => p.id === state.tab) ?? PANES[0];
+
   const cards = [
-    objectsCard(state, actions),
-    layersCard(state, actions),
-    state.paint ? paintCard(state, actions) : transformCard(state, actions),
-    fillCard(state, actions),
+    tabbedCard({
+      tabs: PANES,
+      active: active.id,
+      onSelect: actions.setTab,
+      body: active.pane(state, actions),
+    }),
+    transformCard(state, actions),
     paperCard(state, actions),
     viewCard(state, actions),
     outputCard(state, actions),

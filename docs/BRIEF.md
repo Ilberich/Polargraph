@@ -108,7 +108,7 @@ A polargraph (wall plotter) driven by a Raspberry Pi Pico2W. Controlled via a un
   - Pen swap pause command (`M0`) inserted at each layer break automatically
   - Gondola returns to home corner on pause for pen swap
 - Layer ordering — paths auto-sorted by layer to minimize pen swaps
-- Hatch fill — select closed shape, define spacing and angle, single and crosshatch
+- Hatch fill — pick shapes to fill with a fill tool, define spacing and angle, single and crosshatch
 - Gcode optimization — applied before export or send:
   - Path ordering — nearest neighbor sorting to minimize travel moves
   - Line merging — connect paths sharing endpoints into continuous strokes

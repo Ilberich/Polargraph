@@ -22,6 +22,9 @@ const SNAP_PIXELS = 8;
 /** Movement below this is a click, not a drag. */
 const CLICK_SLOP = 3;
 
+/** How far the pointer must travel before a fill drag tries another shape. */
+const FILL_STEP = 6;
+
 function canvasPoint(canvas, event) {
   const rect = canvas.getBoundingClientRect();
   return { x: event.clientX - rect.left, y: event.clientY - rect.top };
@@ -67,13 +70,18 @@ export function attachInteraction(canvas, host) {
       return { type: 'pan', from: screen, viewport: host.getViewport() };
     }
 
-    // Painting locks everything else out. That is the point of it being a
+    // A canvas tool locks everything else out. That is the point of it being a
     // mode: a stroke that nudged the object while choosing part of it would
     // make the choice impossible to make accurately.
-    if (host.getPaint()) {
+    const tool = host.getTool();
+
+    if (tool) {
       // Alt takes back rather than adds, the usual convention for a selection.
-      const gesture = { type: 'paint', erase: event.altKey };
-      host.paintAt(paper, gesture.erase);
+      const gesture = { type: tool, erase: event.altKey, at: screen };
+
+      if (tool === 'fill') host.fillAt(paper, gesture.erase);
+      else host.paintAt(paper, gesture.erase);
+
       return gesture;
     }
 
@@ -168,6 +176,17 @@ export function attachInteraction(canvas, host) {
         break;
       }
 
+      case 'fill': {
+        // Dragging across shapes fills each in turn, but deciding which shape
+        // a point is inside is a test against every outline — far too much to
+        // repeat for a pointer that has barely moved.
+        if (Math.hypot(screen.x - gesture.at.x, screen.y - gesture.at.y) < FILL_STEP) break;
+
+        gesture.at = screen;
+        host.fillAt(paper, gesture.erase);
+        break;
+      }
+
       case 'scale': {
         const placement = host.getScene().placements.find((p) => p.id === gesture.id);
         if (!placement) return;
@@ -207,7 +226,7 @@ export function attachInteraction(canvas, host) {
   };
 
   const onPointerMove = (event) => {
-    if (host.getPaint()) host.setBrushAt(canvasPoint(canvas, event));
+    if (host.getTool() === 'paint') host.setBrushAt(canvasPoint(canvas, event));
 
     if (!gesture) {
       host.setCursor(hoverCursor(event));
@@ -230,7 +249,7 @@ export function attachInteraction(canvas, host) {
 
   /** Cursor hint for what a press would do here. */
   function hoverCursor(event) {
-    if (host.getPaint()) return 'crosshair';
+    if (host.getTool()) return 'crosshair';
 
     const screen = canvasPoint(canvas, event);
     const selectedId = host.getSelectedId();

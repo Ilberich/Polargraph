@@ -127,6 +127,33 @@ export function card(title, children, actions = null) {
   ]);
 }
 
+/**
+ * One card holding several panes, only one shown at a time.
+ *
+ * The panel had grown long enough that the thing being worked on was usually
+ * off the bottom of it. Tabs are a plain radio group under the hood, so a
+ * keyboard reaches them the way it reaches anything else, and each tab keeps a
+ * stable id so a rebuild can put focus back where it was.
+ */
+export function tabbedCard({ tabs, active, onSelect, body }) {
+  const strip = el('div', { class: 'tabs', role: 'tablist' },
+    tabs.map((tab) => el('button', {
+      class: `tab ${tab.id === active ? 'tab--active' : ''}`.trim(),
+      type: 'button',
+      id: `tab-${tab.id}`,
+      role: 'tab',
+      'aria-selected': tab.id === active ? 'true' : 'false',
+      title: tab.title ?? tab.label,
+      onclick: () => onSelect(tab.id),
+    }, tab.label))
+  );
+
+  return el('section', { class: 'card', dataset: { card: active } }, [
+    strip,
+    el('div', { class: 'tabs__body', role: 'tabpanel' }, [].concat(body)),
+  ]);
+}
+
 /** Offer a generated file for download. */
 export function downloadText(filename, text, type = 'text/plain') {
   const url = URL.createObjectURL(new Blob([text], { type }));
