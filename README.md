@@ -3,7 +3,8 @@
 A wall plotter driven by a Raspberry Pi Pico2W, with a web app that doubles as a
 standalone SVG-to-gcode design tool.
 
-**Status:** planning complete, implementation not started.
+**Status:** Phase 0 complete — shell, specs and build pipeline. The design
+tool itself starts in Phase 1.
 
 ## What it is
 
@@ -15,6 +16,26 @@ Two pieces:
 - **`app/`** — a static web app, no backend, no framework. Loads SVGs, arranges
   them on a paper canvas, generates and optimizes gcode, previews the result.
   Gains machine control when opened from the plotter.
+
+## Layout
+
+```
+app/          static web app — no build step, no dependencies
+  css/        design tokens and styles
+  js/core/    DOM-free logic, unit tested
+firmware/     MicroPython for the Pico 2 W (Phase 4)
+tools/        motion simulator and SD deploy script (Phase 4)
+docs/         specifications and decisions
+```
+
+## Development
+
+```sh
+npm test      # node's built-in runner; no dependencies to install
+```
+
+There is no build step. Serve `app/` with any static file server to run it
+locally.
 
 ## Where to start
 

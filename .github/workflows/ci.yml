@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  # Pushes to main are covered by the Pages workflow, which runs the same
+  # tests as a deploy gate. Testing them here too would just duplicate runs.
+  push:
+    branches-ignore: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # No dependencies, so nothing to install. The test runner is built in.
+      - name: Run tests
+        run: npm test

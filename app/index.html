@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Polargraph</title>
+    <meta
+      name="description"
+      content="Design tool and machine control for a polargraph wall plotter."
+    />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#17191c" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M4 5 L16 21 L28 5' fill='none' stroke='%234db6a4' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='16' cy='24' r='3.5' fill='%234db6a4'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="css/tokens.css" />
+    <link rel="stylesheet" href="css/base.css" />
+    <link rel="stylesheet" href="css/app.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="header">
+        <div class="header__brand">
+          <!-- Two belts converging on the gondola. -->
+          <svg
+            class="header__mark"
+            width="20"
+            height="20"
+            viewBox="0 0 32 32"
+            aria-hidden="true"
+          >
+            <path
+              d="M4 5 L16 21 L28 5"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <circle cx="16" cy="24" r="3.5" fill="currentColor" />
+          </svg>
+          <h1 class="header__title">Polargraph</h1>
+        </div>
+
+        <!-- Filled by main.js once the environment is known. -->
+        <div id="mode-badge" class="badge badge--standalone">
+          <span class="badge__dot"></span>
+          <span id="mode-label">Checking</span>
+        </div>
+      </header>
+
+      <main class="main">
+        <section class="stage">
+          <div class="placeholder">
+            <svg
+              class="placeholder__mark"
+              width="64"
+              height="64"
+              viewBox="0 0 32 32"
+              aria-hidden="true"
+            >
+              <path
+                d="M4 5 L16 21 L28 5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <circle cx="16" cy="24" r="2.5" fill="currentColor" />
+            </svg>
+
+            <h2 class="placeholder__title">Canvas coming in Phase 2</h2>
+            <p class="placeholder__body">
+              The shell is up and the build pipeline is live. Paper canvas, SVG
+              import and gcode generation land next.
+            </p>
+
+            <!-- Populated only when this origin cannot reach a plotter. -->
+            <div id="env-notice" hidden></div>
+          </div>
+        </section>
+
+        <aside class="panel">
+          <div class="card">
+            <h3 class="card__title">Machine</h3>
+            <dl id="machine-specs" class="spec"></dl>
+          </div>
+
+          <div class="card">
+            <h3 class="card__title">Build</h3>
+            <div class="phase">
+              <span>Phase 0</span>
+              <span class="phase__current">Foundation</span>
+            </div>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <script type="module" src="js/main.js"></script>
+  </body>
+</html>

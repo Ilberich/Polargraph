@@ -1,0 +1,216 @@
+/* Application shell: layout and components. */
+
+/* ---------------------------------------------------------------- layout -- */
+
+.app {
+  display: grid;
+  grid-template-rows: var(--header-height) 1fr;
+  min-height: 100vh;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: 0 var(--space-4);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.header__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.header__mark {
+  flex: none;
+  color: var(--accent);
+}
+
+.header__title {
+  font-size: var(--text-base);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.main {
+  display: grid;
+  grid-template-columns: 1fr var(--panel-width);
+  min-height: 0;
+}
+
+.stage {
+  display: grid;
+  place-items: center;
+  padding: var(--space-6) var(--space-4);
+  background: var(--surface-sunken);
+  min-width: 0;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+/* Below this width the sidebar stops being a sidebar. */
+@media (max-width: 900px) {
+  .main {
+    grid-template-columns: 1fr;
+  }
+
+  .panel {
+    border-left: none;
+    border-top: 1px solid var(--border);
+  }
+}
+
+/* ------------------------------------------------------------ components -- */
+
+.card {
+  padding: var(--space-4);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.card__title {
+  font-size: var(--text-sm);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: var(--space-3);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.badge__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+
+.badge--connected {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+  background: var(--accent-fade);
+}
+
+.badge--standalone {
+  color: var(--text-dim);
+}
+
+/* Empty-state block that fills the stage until the canvas arrives. */
+.placeholder {
+  max-width: 34rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  align-items: center;
+}
+
+.placeholder__mark {
+  color: var(--accent);
+  opacity: 0.55;
+}
+
+.placeholder__title {
+  font-size: var(--text-xl);
+  letter-spacing: 0.02em;
+}
+
+.placeholder__body {
+  color: var(--text-dim);
+  font-size: var(--text-sm);
+}
+
+.notice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--text-faint);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+  text-align: left;
+}
+
+.notice--info {
+  border-left-color: var(--accent);
+}
+
+.notice--warn {
+  border-left-color: var(--warn);
+  background: var(--warn-fade);
+}
+
+.notice__title {
+  color: var(--text);
+  font-size: var(--text-sm);
+}
+
+/* Reference list of machine constants. Values are right-aligned so digits
+   line up in the mono face. */
+.spec {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+}
+
+.spec__key {
+  color: var(--text-faint);
+}
+
+.spec__value {
+  color: var(--text);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.phase {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+}
+
+.phase__current {
+  color: var(--accent);
+}
+
+/* At phone widths the mono face makes large headings run into the gutters. */
+@media (max-width: 480px) {
+  .placeholder__title {
+    font-size: var(--text-lg);
+  }
+}

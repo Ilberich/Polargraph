@@ -1,0 +1,11 @@
+{
+  "name": "polargraph",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Wall plotter design tool and Pico 2 W firmware",
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"app/js/**/*.test.js\""
+  },
+  "license": "MIT"
+}
