@@ -139,27 +139,7 @@ function tracePaths(ctx, placement) {
   }
 }
 
-/**
- * Stroke width to draw a placement's lines at.
- *
- * Drawn at the pen's true width so overlapping fills look on screen the way
- * they will on paper — which is the point of spacing strokes closer than the
- * nib. Zoomed out that would vanish, so it never goes below a hairline.
- *
- * Returned in the placement's own units, because the canvas already carries
- * both the viewport and placement transforms when the stroke is drawn.
- */
-export function strokeWidth(penWidthMm, viewport, placementScale, selected) {
-  const totalScale = viewport.scale * Math.abs(placementScale || 1);
-  if (!(totalScale > 0)) return 1;
-
-  const hairlinePx = selected ? 1.5 : 1.1;
-  const penPx = (penWidthMm || 0) * viewport.scale;
-
-  return Math.max(penPx, hairlinePx) / totalScale;
-}
-
-function drawPlacement(ctx, placement, viewport, theme, selected, penWidthMm) {
+function drawPlacement(ctx, placement, viewport, theme, selected) {
   if (!placement.visible) return;
 
   const m = placementMatrix(placement);
@@ -169,7 +149,10 @@ function drawPlacement(ctx, placement, viewport, theme, selected, penWidthMm) {
   ctx.scale(viewport.scale, viewport.scale);
   ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
 
-  ctx.lineWidth = strokeWidth(penWidthMm, viewport, placement.scale, selected);
+  // A constant hairline, so lines stay visible at any zoom and the drawing
+  // reads the same whatever is in the pen holder.
+  const totalScale = viewport.scale * Math.abs(placement.scale || 1);
+  ctx.lineWidth = (selected ? 1.5 : 1.1) / (totalScale || 1);
   ctx.strokeStyle = selected ? theme.accent : theme.ink;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
@@ -273,9 +256,7 @@ function drawGuides(ctx, guides, viewport, size, theme) {
 }
 
 /** Draw the whole scene. */
-export function render(canvas, {
-  scene, viewport, selectedId = null, guides = [], gridMm = 0, penWidthMm = 0,
-}) {
+export function render(canvas, { scene, viewport, selectedId = null, guides = [], gridMm = 0 }) {
   const { width, height, ratio } = resizeCanvas(canvas);
   const ctx = canvas.getContext('2d');
   const theme = readTheme(canvas);
@@ -289,7 +270,7 @@ export function render(canvas, {
   drawMargins(ctx, scene, viewport, theme);
 
   for (const placement of scene.placements) {
-    drawPlacement(ctx, placement, viewport, theme, placement.id === selectedId, penWidthMm);
+    drawPlacement(ctx, placement, viewport, theme, placement.id === selectedId);
   }
 
   const selected = scene.placements.find((p) => p.id === selectedId);

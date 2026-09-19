@@ -36,8 +36,6 @@ const DEFAULT_SETTINGS = {
   travelZ: 5,
   optimize: true,
   acceleration: 200,
-  /** Width of the line the pen lays down, mm. Used to judge fill spacing. */
-  penWidthMm: 0.5,
   showGrid: false,
   snap: { enabled: true, grid: false, gridMm: 10, paperEdges: true, paperCentre: true, margins: true, objects: true },
 };
@@ -106,7 +104,6 @@ function drawCanvas() {
     selectedId: state.selectedId,
     guides: state.guides,
     gridMm: state.settings.showGrid ? state.settings.snap.gridMm : 0,
-    penWidthMm: state.settings.penWidthMm,
   });
 }
 

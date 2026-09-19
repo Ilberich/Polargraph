@@ -179,22 +179,7 @@ function fillCard(state, actions) {
       }),
     ]),
 
-    hatch.enabled && spacingAdvice(placement, state.settings),
   ]);
-}
-
-/**
- * What the chosen spacing comes to on paper.
- *
- * Stated plainly, with no opinion attached. Overlapping strokes are a
- * deliberate technique — a single pass at exactly nib width leaves striping,
- * because ink laying and positioning both vary — so several passes over the
- * same paper is how even coverage is achieved, not a mistake to warn about.
- */
-function spacingAdvice(placement, settings) {
-  return el('p', { class: 'hint' },
-    `Lines land ${mm(placement.hatch.spacingMm)} mm apart on paper, whatever the ` +
-    `object is scaled to. Your pen draws ${mm(settings.penWidthMm)} mm wide.`);
 }
 
 function viewCard(state, actions) {
