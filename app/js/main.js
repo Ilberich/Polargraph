@@ -25,7 +25,7 @@ import { load, save, mergeSettings, defaultStorage } from './core/storage.js';
 import { render } from './ui/render.js';
 import { attachInteraction } from './ui/interaction.js';
 import { renderPanels, describePaper } from './ui/panels.js';
-import { downloadText, pickFiles } from './ui/dom.js';
+import { downloadText, pickFiles, isEditable } from './ui/dom.js';
 
 const DEFAULT_SETTINGS = {
   feedRate: 1200,
@@ -52,21 +52,38 @@ let panelHost;
 let statusNode;
 let frame = null;
 
+/** Whether the queued frame also needs the panel rebuilt. */
+let panelsDirty = false;
+
 function setState(patch) {
   Object.assign(state, patch);
   scheduleRender();
 }
 
-function scheduleRender() {
+/**
+ * Queue a frame.
+ *
+ * `panels: false` redraws only the canvas. Viewport changes — resizing,
+ * panning, the mobile keyboard opening — do not change what the panel says,
+ * and rebuilding it needlessly is actively harmful (see drawPanels).
+ */
+function scheduleRender({ panels = true } = {}) {
+  if (panels) panelsDirty = true;
   if (frame !== null) return;
 
   frame = requestAnimationFrame(() => {
     frame = null;
-    draw();
+
+    const withPanels = panelsDirty;
+    panelsDirty = false;
+
+    drawCanvas();
+    if (withPanels) drawPanels();
+    statusNode.textContent = state.status || describePaper(state.scene.paper);
   });
 }
 
-function draw() {
+function drawCanvas() {
   render(canvas, {
     scene: state.scene,
     viewport: state.viewport,
@@ -74,9 +91,28 @@ function draw() {
     guides: state.guides,
     gridMm: state.settings.showGrid ? state.settings.snap.gridMm : 0,
   });
+}
+
+/**
+ * Rebuild the panel, unless the user is typing into it.
+ *
+ * The panel is rebuilt wholesale rather than patched, which replaces its DOM
+ * and destroys whatever holds focus. On a phone that closes the soft keyboard
+ * the instant it opens — because the keyboard opening resizes the viewport,
+ * which used to schedule a render, which rebuilt the panel out from under the
+ * field being tapped.
+ *
+ * So a rebuild is deferred while an editable element inside the panel has
+ * focus, and runs when focus leaves. Values in the panel are only stale during
+ * an edit the user is about to commit anyway.
+ */
+function drawPanels() {
+  if (panelHost.contains(document.activeElement) && isEditable(document.activeElement)) {
+    panelsDirty = true;
+    return;
+  }
 
   renderPanels(panelHost, state, actions);
-  statusNode.textContent = state.status || describePaper(state.scene.paper);
 }
 
 /** Persist the parts of the session worth restoring. */
@@ -303,7 +339,15 @@ function main() {
     if (event.code === 'Space') panModifier = false;
   });
 
-  window.addEventListener('resize', scheduleRender);
+  // A resize changes the canvas, never the panel's contents. Rebuilding the
+  // panel here is what was dismissing the mobile keyboard.
+  window.addEventListener('resize', () => scheduleRender({ panels: false }));
+  globalThis.visualViewport?.addEventListener('resize', () => scheduleRender({ panels: false }));
+
+  // Run any rebuild that was deferred while a field was being edited.
+  panelHost.addEventListener('focusout', () => {
+    if (panelsDirty) scheduleRender();
+  });
 
   fitView();
 }

@@ -28,6 +28,20 @@ export function el(tag, props = {}, children = []) {
   return node;
 }
 
+/** Elements that hold a caret and a soft keyboard. */
+const EDITABLE_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
+
+/**
+ * Is this node one the user can type into?
+ *
+ * Used to avoid replacing an element mid-edit. Takes any object with a
+ * `tagName`, so the rule can be tested without a DOM.
+ */
+export function isEditable(node) {
+  if (!node) return false;
+  return EDITABLE_TAGS.has(node.tagName) || node.isContentEditable === true;
+}
+
 export function clear(node) {
   node.replaceChildren();
   return node;
