@@ -7,6 +7,10 @@
  *
  * All the arithmetic lives in core/scene/manipulate.js; this file decides which
  * gesture is happening and feeds it paper coordinates.
+ *
+ * Every pointer is tracked, not only the one that started a gesture, because a
+ * second finger means pinch — and a pinch has to be able to interrupt whatever
+ * the first finger had begun.
  */
 
 import { toPaper, pan, zoomAt, screenToPaperDistance } from '../core/view/viewport.js';
@@ -24,6 +28,17 @@ const CLICK_SLOP = 3;
 
 /** How far the pointer must travel before a fill drag tries another shape. */
 const FILL_STEP = 6;
+
+/**
+ * Fingers closer together than this do not define a reliable pinch.
+ *
+ * Two touches a few pixels apart give a distance dominated by noise, and the
+ * ratio against it sends the zoom to either extreme.
+ */
+const MIN_PINCH_PX = 24;
+
+const midpoint = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+const spread = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
 function canvasPoint(canvas, event) {
   const rect = canvas.getBoundingClientRect();
@@ -58,6 +73,9 @@ export function attachInteraction(canvas, host) {
   /** null when idle; otherwise the gesture being performed. */
   let gesture = null;
 
+  /** Every pointer currently down on the canvas, by id. */
+  const pointers = new Map();
+
   const paperAt = (event) => toPaper(host.getViewport(), canvasPoint(canvas, event));
 
   function beginGesture(event) {
@@ -77,10 +95,18 @@ export function attachInteraction(canvas, host) {
 
     if (tool) {
       // Alt takes back rather than adds, the usual convention for a selection.
-      const gesture = { type: tool, erase: event.altKey, at: screen };
+      const id = host.getSelectedId();
+      const placement = scene.placements.find((p) => p.id === id);
+      const gesture = { type: tool, id, erase: event.altKey, at: screen };
 
-      if (tool === 'fill') host.fillAt(paper, gesture.erase);
-      else host.paintAt(paper, gesture.erase);
+      if (tool === 'fill') {
+        // A fill lands on the way down, so what it replaced is what a pinch
+        // has to put back.
+        gesture.before = { fills: placement?.fills ?? {} };
+        host.fillAt(paper, gesture.erase);
+      } else {
+        host.paintAt(paper, gesture.erase);
+      }
 
       return gesture;
     }
@@ -94,11 +120,18 @@ export function attachInteraction(canvas, host) {
     if (selected && selected.visible) {
       const handle = handleAt(selected, host.getViewport(), screen);
 
+      // The snapshot is what a pinch rewinds to: the second finger of a pinch
+      // lands a moment after the first, and whatever that first one dragged in
+      // the meantime was never meant.
+      const before = {
+        x: selected.x, y: selected.y, rotation: selected.rotation, scale: selected.scale,
+      };
+
       if (handle?.kind === 'rotate') {
-        return { type: 'rotate', id: selected.id, moved: false };
+        return { type: 'rotate', id: selected.id, before, moved: false };
       }
       if (handle?.kind === 'scale') {
-        return { type: 'scale', id: selected.id, corner: handle.corner, moved: false };
+        return { type: 'scale', id: selected.id, corner: handle.corner, before, moved: false };
       }
     }
 
@@ -110,6 +143,7 @@ export function attachInteraction(canvas, host) {
         type: 'move',
         id: hit.id,
         origin: { x: hit.x, y: hit.y },
+        before: { x: hit.x, y: hit.y },
         start: paper,
         startScreen: screen,
         moved: false,
@@ -119,6 +153,59 @@ export function attachInteraction(canvas, host) {
     // Empty paper: deselect, and let the drag pan the view.
     host.setSelectedId(null);
     return { type: 'pan', from: screen, viewport: host.getViewport() };
+  }
+
+  /**
+   * Start a pinch from the two pointers that are down.
+   *
+   * The starting spread, centre and viewport are kept so every frame is worked
+   * out from where the fingers began rather than from the frame before.
+   * Accumulating the deltas would let rounding creep in over a long gesture,
+   * and would make the zoom clamp behave differently depending on the path
+   * taken to get there.
+   */
+  function beginPinch() {
+    const [a, b] = [...pointers.values()];
+
+    return {
+      type: 'pinch',
+      spread: spread(a, b),
+      centre: midpoint(a, b),
+      viewport: host.getViewport(),
+    };
+  }
+
+  function updatePinch() {
+    if (pointers.size < 2) return;
+
+    const [a, b] = [...pointers.values()];
+    const now = spread(a, b);
+
+    if (gesture.spread < MIN_PINCH_PX || now < MIN_PINCH_PX) return;
+
+    // Zoom about where the fingers started, then slide by however far their
+    // centre has travelled — so a pinch pans as well as zooms, which is the
+    // only way to move the view while a canvas tool has the single-finger drag.
+    const zoomed = zoomAt(gesture.viewport, gesture.centre, now / gesture.spread);
+    const centre = midpoint(a, b);
+
+    host.setViewport(pan(zoomed, centre.x - gesture.centre.x, centre.y - gesture.centre.y));
+  }
+
+  /**
+   * Give up whatever one finger had started, as though it had never touched.
+   *
+   * Nothing here is committed, so a gesture interrupted by a pinch leaves the
+   * drawing exactly as it was.
+   */
+  function abandonGesture() {
+    if (!gesture) return;
+
+    if (gesture.type === 'paint') host.cancelStroke();
+    else if (gesture.before && gesture.id) host.updatePlacement(gesture.id, gesture.before);
+
+    host.setGuides([]);
+    gesture = null;
   }
 
   function updateGesture(event) {
@@ -210,9 +297,23 @@ export function attachInteraction(canvas, host) {
   }
 
   const onPointerDown = (event) => {
-    if (event.button !== 0 && event.button !== 1) return;
+    // A touch reports button 0; the filter is about which mouse buttons act.
+    if (event.pointerType === 'mouse' && event.button !== 0 && event.button !== 1) return;
 
-    // preventDefault below suppresses the focus change a press would normally
+    canvas.setPointerCapture(event.pointerId);
+    pointers.set(event.pointerId, canvasPoint(canvas, event));
+    event.preventDefault();
+
+    if (pointers.size === 2) {
+      abandonGesture();
+      gesture = beginPinch();
+      return;
+    }
+
+    // A third finger has nothing to say about a pinch.
+    if (pointers.size > 2) return;
+
+    // preventDefault above suppresses the focus change a press would normally
     // cause, so a field in the panel would keep focus while the user works on
     // the canvas — and any panel update waiting on that blur would never run.
     // Dropping focus explicitly is what the press would have done anyway.
@@ -220,12 +321,18 @@ export function attachInteraction(canvas, host) {
       document.activeElement.blur?.();
     }
 
-    canvas.setPointerCapture(event.pointerId);
     gesture = beginGesture(event);
-    event.preventDefault();
   };
 
   const onPointerMove = (event) => {
+    if (pointers.has(event.pointerId)) pointers.set(event.pointerId, canvasPoint(canvas, event));
+
+    if (gesture?.type === 'pinch') {
+      updatePinch();
+      event.preventDefault();
+      return;
+    }
+
     if (host.getTool() === 'paint') host.setBrushAt(canvasPoint(canvas, event));
 
     if (!gesture) {
@@ -238,9 +345,21 @@ export function attachInteraction(canvas, host) {
   };
 
   const onPointerUp = (event) => {
+    pointers.delete(event.pointerId);
+    if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+
     if (!gesture) return;
 
-    if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+    if (gesture.type === 'pinch') {
+      // Every finger has to leave before anything else can start. Lifting one
+      // of two would otherwise drop straight into a drag from wherever the
+      // remaining finger happened to be.
+      if (pointers.size === 0) {
+        gesture = null;
+        host.setGuides([]);
+      }
+      return;
+    }
 
     gesture = null;
     host.setGuides([]);

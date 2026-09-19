@@ -127,6 +127,16 @@ The features that make output good rather than merely correct.
 - **Panel layout:** objects, layers, paint and fill share one tabbed card. Only
   one of them is ever being worked on, and stacked they pushed everything else
   off the bottom of the panel.
+- **Pinch to zoom:** every pointer on the canvas is tracked, not only the one
+  that started a gesture, so a second finger can take over as a pinch. Each
+  frame is worked out from where the fingers started rather than from the frame
+  before, which keeps rounding from creeping in over a long gesture and makes
+  the zoom clamp independent of the path taken to reach it. The pinch pans by
+  its centre as well, which is the only way to move the view while the paint or
+  fill tab holds the single-finger drag.
+  - Whatever the first finger had begun is rewound when the pinch takes over:
+    the second finger lands a moment after the first, and anything dragged,
+    filled or brushed in between was never meant.
 
 **Done when:** a multi-layer hatched drawing exports with optimized ordering and
 an accurate time estimate.

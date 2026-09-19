@@ -703,6 +703,11 @@ const host = {
   isPanModifier: () => panModifier,
   getTool: activeTool,
   paintAt,
+  // A pinch has taken over: the half-drawn stroke was never meant.
+  cancelStroke: () => {
+    if (state.paint.selection.size === 0) return;
+    setState({ paint: { ...state.paint, selection: new Map() } });
+  },
   fillAt,
   setBrushAt,
   // A stroke is finished: it lands now, and the panel catches up.
