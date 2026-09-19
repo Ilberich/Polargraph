@@ -15,7 +15,7 @@ import { importSvg } from './core/svg/import.js';
 import { gcodeToPaths } from './core/gcode/parser.js';
 import { writeGcode, writeLayeredGcode } from './core/gcode/writer.js';
 import { optimize } from './core/gcode/optimize.js';
-import { estimateGcode } from './core/gcode/estimate.js';
+import { gcodeTimeline, summarizeTimeline, formatDuration } from './core/gcode/estimate.js';
 import { createPath } from './core/geom/path.js';
 import {
   createScene, addPlacement, removePlacement, updatePlacement, setPaper,
@@ -78,6 +78,13 @@ const state = {
   },
   /** The fill tool. Which shapes are filled lives on the placement. */
   fill: { erase: false },
+  /**
+   * Watching the plot back.
+   *
+   * `seconds` is a position on the job's timeline, so it stays meaningful when
+   * the drawing changes under it — only clamped, never rescaled.
+   */
+  playback: { seconds: 0, playing: false, speed: 20 },
   settings: { ...DEFAULT_SETTINGS },
   status: '',
   /**
@@ -87,7 +94,7 @@ const state = {
    * is bounded at well under a second but still far too slow to run on every
    * frame of a drag.
    */
-  analysis: { state: 'empty', report: null, estimate: null, baseline: null },
+  analysis: { state: 'empty', report: null, estimate: null, baseline: null, timeline: null },
 };
 
 let analysisTimer = null;
@@ -135,6 +142,7 @@ function drawCanvas() {
     selectedId: state.selectedId,
     guides: state.guides,
     gridMm: state.settings.showGrid ? state.settings.snap.gridMm : 0,
+    playback: playbackView(),
     tool: activeTool() ? state.selectedId : null,
     paint: activeTool() === 'paint' ? state.paint : null,
   });
@@ -236,7 +244,9 @@ function scheduleAnalysis() {
   if (analysisTimer !== null) clearTimeout(analysisTimer);
 
   if (state.scene.placements.length === 0) {
-    setState({ analysis: { state: 'empty', report: null, estimate: null, baseline: null } });
+    setState({
+      analysis: { state: 'empty', report: null, estimate: null, baseline: null, timeline: null },
+    });
     return;
   }
 
@@ -247,7 +257,9 @@ function scheduleAnalysis() {
 
     const job = buildJob({ withBaseline: true });
     if (!job) {
-      setState({ analysis: { state: 'empty', report: null, estimate: null, baseline: null } });
+      setState({
+        analysis: { state: 'empty', report: null, estimate: null, baseline: null, timeline: null },
+      });
       return;
     }
 
@@ -256,12 +268,25 @@ function scheduleAnalysis() {
       maxSpeedMmMin: Math.max(state.settings.feedRate, state.settings.travelFeedRate),
     };
 
+    // One pass over the physics, used for both the figures and the scrubber,
+    // so the two can never disagree about how long the job takes.
+    const timeline = gcodeTimeline(job.gcode, settings);
+
     setState({
       analysis: {
         state: 'ready',
         report: job.report,
-        estimate: estimateGcode(job.gcode, settings),
-        baseline: job.baseline ? estimateGcode(job.baseline, settings) : null,
+        estimate: summarizeTimeline(timeline),
+        baseline: job.baseline
+          ? summarizeTimeline(gcodeTimeline(job.baseline, settings))
+          : null,
+        timeline,
+      },
+      // The job changed under the scrubber; keep where it was pointing, but
+      // not past the end of a job that is now shorter.
+      playback: {
+        ...state.playback,
+        seconds: Math.min(state.playback.seconds, timeline.totalSeconds),
       },
     });
   }, 250);
@@ -303,6 +328,76 @@ function setStatus(message) {
   setState({ status: message });
 }
 
+
+// -------------------------------------------------------------- playback --
+
+/** What the canvas needs to draw the plot so far, or null when not watching. */
+function playbackView() {
+  const { timeline } = state.analysis;
+  const { seconds, playing } = state.playback;
+
+  if (!timeline || timeline.entries.length === 0) return null;
+  if (!playing && seconds <= 0) return null;
+
+  return { timeline, seconds };
+}
+
+let playbackFrame = null;
+let playbackLast = 0;
+
+/**
+ * Advance the scrubber in step with the clock.
+ *
+ * Driven off the frame's own timestamp rather than a fixed increment, so the
+ * playback runs at the speed it says it does whatever the frame rate — a
+ * dropped frame loses smoothness, not time.
+ */
+function playbackTick(now) {
+  playbackFrame = null;
+  if (!state.playback.playing) return;
+
+  const total = state.analysis.timeline?.totalSeconds ?? 0;
+  const elapsed = (now - playbackLast) / 1000;
+  playbackLast = now;
+
+  const seconds = state.playback.seconds + elapsed * state.playback.speed;
+
+  if (seconds >= total) {
+    setState({ playback: { ...state.playback, seconds: total, playing: false } });
+    return;
+  }
+
+  state.playback = { ...state.playback, seconds };
+  scheduleRender({ panels: false });
+
+  // The slider and its readout are nudged directly rather than by rebuilding
+  // the panel. Everything else in this app is rebuilt from state, but sixty
+  // rebuilds a second would replace the very control being watched — and would
+  // fight anyone reaching for it mid-playback.
+  const position = document.getElementById('playback-position');
+  if (position) position.value = String(seconds);
+
+  const readout = document.getElementById('playback-elapsed');
+  if (readout) {
+    readout.textContent = `${formatDuration(seconds)} / ${formatDuration(total)}`;
+  }
+
+  playbackFrame = requestAnimationFrame(playbackTick);
+}
+
+function startPlayback() {
+  if (playbackFrame !== null) return;
+
+  playbackLast = performance.now();
+  playbackFrame = requestAnimationFrame(playbackTick);
+}
+
+function stopPlayback() {
+  if (playbackFrame === null) return;
+
+  cancelAnimationFrame(playbackFrame);
+  playbackFrame = null;
+}
 
 // ----------------------------------------------------------- canvas tools --
 
@@ -472,14 +567,17 @@ const actions = {
 
   reorder(id, delta) {
     setState({ scene: reorderPlacement(state.scene, id, delta) });
+    scheduleAnalysis();
   },
 
   fit(id) {
     setState({ scene: fitToMargins(state.scene, id) });
+    scheduleAnalysis();
   },
 
   centre(id) {
     setState({ scene: centreOnPaper(state.scene, id) });
+    scheduleAnalysis();
   },
 
   setPaper(changes) {
@@ -534,6 +632,44 @@ const actions = {
       scene: updatePlacement(state.scene, placementId, { layerId, pathLayers: {} }),
     });
     scheduleAnalysis();
+  },
+
+  /** Scrub to a point in the job, which stops playback the way a scrubber does. */
+  scrubTo(seconds) {
+    const total = state.analysis.timeline?.totalSeconds ?? 0;
+
+    stopPlayback();
+    setState({
+      playback: {
+        ...state.playback,
+        seconds: Math.max(0, Math.min(seconds, total)),
+        playing: false,
+      },
+    });
+  },
+
+  togglePlayback() {
+    const total = state.analysis.timeline?.totalSeconds ?? 0;
+    if (!(total > 0)) return;
+
+    const playing = !state.playback.playing;
+
+    // Starting again from the end starts again from the beginning.
+    const seconds = playing && state.playback.seconds >= total ? 0 : state.playback.seconds;
+
+    setState({ playback: { ...state.playback, playing, seconds } });
+
+    if (playing) startPlayback();
+    else stopPlayback();
+  },
+
+  setPlaybackSpeed(speed) {
+    setState({ playback: { ...state.playback, speed } });
+  },
+
+  rewind() {
+    stopPlayback();
+    setState({ playback: { ...state.playback, seconds: 0, playing: false } });
   },
 
   setTab(tab) {

@@ -6,7 +6,9 @@
  * incremental updates quietly do.
  */
 
-import { el, clear, numberField, checkboxField, button, card, tabbedCard } from './dom.js';
+import {
+  el, clear, numberField, checkboxField, button, card, tabbedCard, rangeField,
+} from './dom.js';
 import { marginBox, outsideMargins } from '../core/scene/scene.js';
 import {
   placementBounds, placementLength, canHatch, topLevelShapes,
@@ -585,6 +587,68 @@ const PANES = [
   { id: 'fill', label: 'Fill', pane: fillPane },
 ];
 
+/** Speeds worth watching a plot back at. A two-hour job at 1x is not one. */
+const PLAYBACK_SPEEDS = [1, 5, 20, 100];
+
+/**
+ * Watching the plot back.
+ *
+ * The scrubber runs on the job's timeline — the same one the estimate is
+ * folded out of — so where the head is at a given moment is what the machine
+ * will really be doing then, optimizer and pen swaps included.
+ */
+function previewCard(state, actions) {
+  const { timeline } = state.analysis;
+
+  if (!timeline || timeline.totalSeconds <= 0) {
+    return card('Preview', el('p', { class: 'empty' },
+      'Nothing to plot yet. Import a drawing to watch it back.'));
+  }
+
+  const { seconds, playing, speed } = state.playback;
+  const total = timeline.totalSeconds;
+
+  const readout = el('span', {
+    class: 'field__readout',
+    id: 'playback-elapsed',
+  }, `${formatDuration(seconds)} / ${formatDuration(total)}`);
+
+  const speeds = el('select', {
+    class: 'field__input',
+    id: 'playback-speed',
+    onchange: (e) => actions.setPlaybackSpeed(Number(e.target.value)),
+  }, PLAYBACK_SPEEDS.map((value) =>
+    element('option', { value, selected: speed === value }, `${value}\u00d7`)));
+
+  return card('Preview', [
+    rangeField({
+      label: 'Position',
+      value: seconds,
+      min: 0,
+      max: total,
+      // A thousand stops along the job, whatever its length.
+      step: total / 1000,
+      id: 'playback-position',
+      readout,
+      onInput: actions.scrubTo,
+    }),
+
+    el('div', { class: 'button-row' }, [
+      button({
+        label: playing ? 'Pause' : 'Play',
+        variant: playing ? '' : 'button--primary',
+        onClick: actions.togglePlayback,
+      }),
+      button({ label: 'Rewind', onClick: actions.rewind }),
+    ]),
+
+    el('label', { class: 'field' }, [
+      el('span', { class: 'field__label' }, 'Speed'),
+      el('span', { class: 'field__control' }, [speeds]),
+    ]),
+  ]);
+}
+
 /** Rebuild the panel into `container`. */
 export function renderPanels(container, state, actions) {
   clear(container);
@@ -602,6 +666,7 @@ export function renderPanels(container, state, actions) {
     paperCard(state, actions),
     viewCard(state, actions),
     outputCard(state, actions),
+    previewCard(state, actions),
   ].filter(Boolean);
 
   container.append(...cards);

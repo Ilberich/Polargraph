@@ -142,7 +142,21 @@ The features that make output good rather than merely correct.
   - A stroke cut by the paint tool has no curve left to flatten from and keeps
     the flattening it had. Its pieces are polylines, and re-flattening would
     move the vertices the selection was cut at.
-- **Scrubber:** playback head rendering moves in real time.
+- **Scrubber:** done. A Preview card scrubs and plays the job back, drawing
+  the plot so far over a ghost of the whole drawing with the gondola marked —
+  filled while drawing, hollow with the pen up, amber while waiting for a pen
+  swap.
+  - It runs on the same timeline the estimate is folded out of, so what the
+    head is doing at a given second is what the machine will really be doing
+    then: optimized order, travel moves and pauses included. Two passes over
+    the same physics could disagree; one cannot.
+  - A pause breaks the speed chain, because the machine is standing still while
+    a pen is swapped. The estimator used to carry speed straight through one.
+  - Playback advances off the frame's own timestamp rather than a fixed
+    increment, so a dropped frame costs smoothness, not time.
+  - The slider and its readout are nudged directly during playback rather than
+    by rebuilding the panel: sixty rebuilds a second would replace the control
+    being watched.
 - **Time estimate:** trapezoidal velocity model over path length, feed rate and
   acceleration; live update.
 - **Pen depth authoring:** per-path and along-path Z, previewed as variable line

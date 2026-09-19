@@ -16,10 +16,17 @@ import { placementMatrix, placementBounds, placementPaths } from '../core/scene/
 import { marginBox } from '../core/scene/scene.js';
 import { layerIdFor } from '../core/scene/layers.js';
 import { segmentCount, runsOf } from '../core/scene/select.js';
+import { positionAt } from '../core/gcode/playback.js';
 import { toScreen } from '../core/view/viewport.js';
 
 /** Screen size of a selection handle, in CSS pixels. */
 export const HANDLE_SIZE = 10;
+
+/** Screen size of the playback head, in CSS pixels. */
+export const HEAD_SIZE = 11;
+
+/** How faint the drawing goes while a plot is being watched back. */
+const GHOST_ALPHA = 0.22;
 
 /** How far above the selection the rotation handle sits, in CSS pixels. */
 export const ROTATE_HANDLE_OFFSET = 28;
@@ -246,6 +253,65 @@ function drawBrush(ctx, cursor, radiusPx, theme) {
   ctx.restore();
 }
 
+/**
+ * The plot as far as a given moment, over a ghost of the whole drawing.
+ *
+ * Drawn from the timeline rather than from the scene, because the timeline is
+ * the plot: it has been through the optimizer and carries the order the
+ * machine will really work in. Travel moves are left out — the pen is up, and
+ * showing them would fill the paper with lines that never get drawn.
+ */
+function drawPlayback(ctx, playback, viewport, theme) {
+  const { timeline, seconds } = playback;
+  const head = positionAt(timeline, seconds);
+  if (!head) return;
+
+  ctx.save();
+  ctx.translate(viewport.x, viewport.y);
+  ctx.scale(viewport.scale, viewport.scale);
+
+  ctx.strokeStyle = theme.accent;
+  ctx.lineWidth = 1.4 / viewport.scale;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+
+  const entries = timeline.entries;
+
+  for (let i = 0; i <= head.index; i++) {
+    const entry = entries[i];
+    if (entry.kind !== 'move' || entry.rapid) continue;
+
+    // The move in progress is drawn only as far as the pen has got.
+    const part = i === head.index ? head : entry.to;
+
+    ctx.moveTo(entry.from.x, entry.from.y);
+    ctx.lineTo(part.x, part.y);
+  }
+
+  ctx.stroke();
+  ctx.restore();
+
+  // The gondola itself, at a fixed size on screen so it stays findable.
+  const at = toScreen(viewport, head);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(at.x, at.y, HEAD_SIZE / 2, 0, Math.PI * 2);
+
+  if (head.state === 'drawing') {
+    ctx.fillStyle = theme.accent;
+    ctx.fill();
+  } else {
+    // Pen up, or waiting for a pen: hollow, so a stalled head is obvious.
+    ctx.strokeStyle = head.state === 'paused' ? theme.warn : theme.accent;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
 /** Screen positions of the scale handles, clockwise from the top left. */
 export function handlePositions(placement, viewport) {
   const b = placementBounds(placement);
@@ -349,6 +415,7 @@ function drawGuides(ctx, guides, viewport, size, theme) {
 /** Draw the whole scene. */
 export function render(canvas, {
   scene, viewport, selectedId = null, guides = [], gridMm = 0, tool = null, paint = null,
+  playback = null,
 }) {
   const { width, height, ratio } = resizeCanvas(canvas);
   const ctx = canvas.getContext('2d');
@@ -368,10 +435,20 @@ export function render(canvas, {
   // with it.
   const worked = tool ? scene.placements.find((p) => p.id === tool) : null;
 
+  // Watching a plot back, the drawing goes to a ghost of itself so the line
+  // following the machine is the thing on the paper rather than one more
+  // stroke among thousands.
+  ctx.save();
+  if (playback) ctx.globalAlpha = GHOST_ALPHA;
+
   for (const placement of scene.placements) {
     const selected = placement.id === selectedId && placement !== worked;
     drawPlacement(ctx, placement, viewport, theme, selected, scene.layers ?? []);
   }
+
+  ctx.restore();
+
+  if (playback) drawPlayback(ctx, playback, viewport, theme);
 
   if (paint && worked && worked.visible) {
     drawPaintSelection(ctx, worked, viewport, theme, paint.selection);

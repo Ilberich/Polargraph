@@ -92,21 +92,32 @@ function junctionSpeed(previous, next, jerk, limit) {
 }
 
 /**
- * Estimate a job from parsed gcode.
+ * Lay a job out on a timeline.
  *
- * Returns seconds of drawing, travelling and pausing, plus the distances the
- * app already shows, so the panel can present one consistent picture.
+ * One entry per thing that takes time, in the order the machine does it: a
+ * move with its endpoints, or a pause. Each carries the second it starts at,
+ * which is what lets a scrubber ask where the pen is at a given moment and get
+ * an answer consistent with the estimate shown beside it — they are the same
+ * pass over the same physics.
+ *
+ * A pause breaks the chain: the machine is standing still while a pen is
+ * swapped, so the moves either side of it start and end stopped.
  */
-export function estimateGcode(source, options = {}) {
+export function gcodeTimeline(source, options = {}) {
   const settings = { ...DEFAULTS, ...options };
   const records = parseGcode(source);
 
   const accel = settings.acceleration;
   const limit = settings.maxSpeedMmMin / 60;
 
-  const moves = [];
+  const entries = [];
 
   for (const record of records) {
+    if (record.type === 'pause') {
+      entries.push({ kind: 'pause', seconds: settings.pauseSeconds });
+      continue;
+    }
+
     if (record.type !== 'move') continue;
 
     const dx = record.to.x - record.from.x;
@@ -119,50 +130,85 @@ export function estimateGcode(source, options = {}) {
 
     const commanded = record.feed > 0 ? record.feed / 60 : limit;
 
-    moves.push({
+    entries.push({
+      kind: 'move',
+      from: record.from,
+      to: record.to,
+      rapid: record.rapid,
       distance,
       direction: { x: dx / distance, y: dy / distance },
       speed: Math.min(commanded, limit),
-      rapid: record.rapid,
     });
   }
 
-  let drawSeconds = 0;
-  let travelSeconds = 0;
+  /** The move before or after `i`, unless a pause stands between. */
+  const neighbour = (i, step) => {
+    const entry = entries[i + step];
+    return entry && entry.kind === 'move' ? entry : null;
+  };
 
-  for (let i = 0; i < moves.length; i++) {
-    const move = moves[i];
-    const previous = moves[i - 1];
-    const next = moves[i + 1];
+  let at = 0;
 
-    // The junction speed is capped by both moves' commanded speeds.
-    const entrySpeed = previous
-      ? Math.min(junctionSpeed(previous.direction, move.direction, settings.jerk, limit),
-                 previous.speed, move.speed)
-      : 0;
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    entry.start = at;
 
-    const exitSpeed = next
-      ? Math.min(junctionSpeed(move.direction, next.direction, settings.jerk, limit),
-                 next.speed, move.speed)
-      : 0;
+    if (entry.kind === 'move') {
+      const previous = neighbour(i, -1);
+      const next = neighbour(i, 1);
 
-    const seconds = moveDuration(move.distance, entrySpeed, exitSpeed, move.speed, accel);
+      // The junction speed is capped by both moves' commanded speeds.
+      const entrySpeed = previous
+        ? Math.min(junctionSpeed(previous.direction, entry.direction, settings.jerk, limit),
+                   previous.speed, entry.speed)
+        : 0;
 
-    if (move.rapid) travelSeconds += seconds;
-    else drawSeconds += seconds;
+      const exitSpeed = next
+        ? Math.min(junctionSpeed(entry.direction, next.direction, settings.jerk, limit),
+                   next.speed, entry.speed)
+        : 0;
+
+      entry.seconds = moveDuration(entry.distance, entrySpeed, exitSpeed, entry.speed, accel);
+    }
+
+    at += entry.seconds;
   }
 
-  const pauses = records.filter((r) => r.type === 'pause').length;
-  const pauseSeconds = pauses * settings.pauseSeconds;
+  return { entries, totalSeconds: at };
+}
 
-  return {
-    drawSeconds,
-    travelSeconds,
-    pauseSeconds,
-    pauses,
-    totalSeconds: drawSeconds + travelSeconds + pauseSeconds,
-    moves: moves.length,
-  };
+/**
+ * Estimate a job from parsed gcode.
+ *
+ * Returns seconds of drawing, travelling and pausing, plus the distances the
+ * app already shows, so the panel can present one consistent picture.
+ */
+export function estimateGcode(source, options = {}) {
+  return summarizeTimeline(gcodeTimeline(source, options));
+}
+
+/** The figures the panel shows, folded out of a timeline already built. */
+export function summarizeTimeline({ entries, totalSeconds }) {
+
+  let drawSeconds = 0;
+  let travelSeconds = 0;
+  let pauseSeconds = 0;
+  let pauses = 0;
+  let moves = 0;
+
+  for (const entry of entries) {
+    if (entry.kind === 'pause') {
+      pauseSeconds += entry.seconds;
+      pauses++;
+      continue;
+    }
+
+    moves++;
+    if (entry.rapid) travelSeconds += entry.seconds;
+    else drawSeconds += entry.seconds;
+  }
+
+  return { drawSeconds, travelSeconds, pauseSeconds, pauses, totalSeconds, moves };
 }
 
 /** Human-readable duration: "1h 12m", "4m 30s", "45s". */

@@ -103,6 +103,33 @@ export function checkboxField({ label, checked, id, onChange }) {
   return el('label', { class: 'checkbox' }, [input, el('span', {}, label)]);
 }
 
+/**
+ * A slider with a live readout.
+ *
+ * `onInput` fires continuously while dragging: a scrubber that only reported
+ * on release would not be a scrubber.
+ */
+export function rangeField({ label, value, min = 0, max = 1, step = 0.01, id, readout, onInput }) {
+  const input = el('input', {
+    class: 'field__range',
+    type: 'range',
+    id,
+    min,
+    max,
+    step,
+    value,
+    oninput: (e) => onInput(Number(e.target.value)),
+  });
+
+  return el('label', { class: 'field' }, [
+    el('span', { class: 'field__label field__label--split' }, [
+      el('span', {}, label),
+      readout,
+    ]),
+    input,
+  ]);
+}
+
 export function button({ label, onClick, variant = '', title }) {
   return el('button', {
     class: `button ${variant}`.trim(),
