@@ -5,7 +5,10 @@
   "description": "Wall plotter design tool and Pico 2 W firmware",
   "type": "module",
   "scripts": {
-    "test": "node --test \"app/js/**/*.test.js\""
+    "test": "npm run test:app && npm run test:firmware",
+    "test:app": "node --test \"app/js/**/*.test.js\"",
+    "test:firmware": "python3 -m unittest discover -s firmware -t firmware -p \"test_*.py\" && python3 -m unittest discover -s tools -t tools -p \"test_*.py\"",
+    "simulate": "python3 tools/simulate.py"
   },
   "license": "MIT"
 }

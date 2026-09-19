@@ -1,7 +1,21 @@
 # Firmware
 
-MicroPython for the Raspberry Pi Pico 2 W. **Not yet implemented** — this lands
-in Phase 4. See [`../docs/ROADMAP.md`](../docs/ROADMAP.md).
+MicroPython for the Raspberry Pi Pico 2 W. **Phase 4 in progress.** See
+[`../docs/ROADMAP.md`](../docs/ROADMAP.md).
+
+Built so far: kinematics, the motion planner, and a streaming gcode parser.
+All three are **plain Python** with no MicroPython-only imports, so the desktop
+simulator in [`../tools/`](../tools/) runs the same modules the Pico will —
+the thing being validated is the firmware itself, not a model of it.
+
+```
+firmware/motion/kinematics.py   XY <-> belt lengths <-> steps
+firmware/motion/planner.py      segmentation, step deltas, bounded lookahead
+firmware/gcode/parser.py        streaming line-at-a-time parser
+```
+
+Run their tests with `npm run test:firmware`, or the whole project with
+`npm test`.
 
 ## Planned layout
 
@@ -35,7 +49,9 @@ able to perturb step timing. See
 
 **Never hold a file in RAM.** Gcode is parsed a line at a time straight off the
 SD card, and uploads are streamed to the card as they arrive. Plot files are
-routinely larger than available memory.
+routinely larger than available memory. The planner's lookahead window is
+bounded by *distance* rather than by segment count, for the same reason: it
+holds enough travel to stop from full speed and no more.
 
 **Position trust is firmware-owned.** The `positionTrusted` flag is cleared on
 every boot and on any fault that could lose steps. The app may not assume

@@ -198,18 +198,44 @@ accurate time estimate, authored pen depth, and a scrubber to watch it back.
 
 ---
 
-## Phase 4 — Firmware core
+## Phase 4 — Firmware core — **in progress**
 
 Built against a host-side simulator first. No hardware required to make progress.
 
-- **CPython simulation harness** (`tools/`): runs planner and kinematics off-target,
-  emits step logs, validates resulting geometry against input. This is what
-  de-risks AD-4.
-- Inverse kinematics: XY → belt lengths → steps
-- Motion planner: lookahead, acceleration and jerk limits, per-job config
+- **CPython simulation harness** (`tools/`): done. Runs the firmware's own
+  planner and kinematics off-target — the same modules, imported unchanged, not
+  a model of them — emits a step log, and reconstructs the toolpath from it.
+  - The firmware's motion code is plain Python with no MicroPython-only imports,
+    which is what makes that possible. `npm test` runs both halves of the
+    project.
+  - Measured on a job exported by the app (a circle and a square, optimized):
+    path deviation 0.0114 mm, endpoint error 0.0007 mm, peak 1600 steps/s.
+    Deviation is under one step (0.0125 mm), and the endpoint error is a
+    twentieth of one after 100 000 steps.
+  - Deviation is sampled *within* segments, not only at their ends. Sampling
+    the ends alone scores coarse segmentation well by measuring it only where
+    it is right — chord error is exactly what happens in between.
+- **Inverse kinematics:** done. XY ↔ belt lengths ↔ steps, plus the resolution
+  at a point: one step is worth a different distance depending on where the
+  gondola is, and it collapses entirely near the motor line. That is the
+  geometric reason a polargraph cannot draw near the top of its own frame.
+- **Motion planner:** done. Segmentation (a straight line on the paper is a
+  curve in belt space), absolute step targets, and bounded lookahead.
+  - Every segment's target is solved from the true geometry rather than from
+    the last rounded value, so rounding is corrected rather than carried.
+    Seven thousand segments and 690 000 steps later the gondola is still within
+    a twentieth of a step of where it should be.
+  - The lookahead window is bounded by *distance*, not by segment count: it
+    holds twice the travel needed to stop from full speed, which is what makes
+    releasing its front provably safe. A 400-move job never holds more than 20
+    segments.
+  - A 200 mm move plans to 10.101 s against an ideal trapezoid of 10.100 s.
+- **Streaming gcode interpreter:** parser done. One line at a time from an
+  iterable, so a job of any size costs one line of memory. Unknown words and
+  unsupported commands are refused with a line number rather than ignored — a
+  plotter that skips a word it does not understand draws the wrong picture.
 - **PIO stepper driver** (AD-4): one state machine per axis, segment queue
 - `PenAxis` interface + `NullPen` (AD-2)
-- Streaming gcode interpreter — one line at a time from SD, never whole-file
 - Job state machine: run, pause, resume, stop, error
 - Pause/resume button on GPIO
 - Error handling and logging per `docs/GCODE.md`

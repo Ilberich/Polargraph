@@ -17,6 +17,12 @@ jobs:
         with:
           node-version: 22
 
+      # The firmware's motion code is plain Python so the simulator can run it
+      # off-target; `npm test` covers both halves.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       # No dependencies, so nothing to install. The test runner is built in.
       - name: Run tests
         run: npm test
