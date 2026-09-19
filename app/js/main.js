@@ -349,6 +349,27 @@ function main() {
     if (panelsDirty) scheduleRender();
   });
 
+  // Keep a focused field clear of the soft keyboard.
+  //
+  // Browsers vary in whether they do this themselves, and the keyboard opens
+  // *after* focus — so at focus time the layout it has to account for does not
+  // exist yet. Nudging once the keyboard has had time to appear is more
+  // reliable than trusting the default, and is a no-op on a desktop where the
+  // field is already in view.
+  panelHost.addEventListener('focusin', (event) => {
+    if (!isEditable(event.target)) return;
+
+    setTimeout(() => {
+      // The user may have moved on while the keyboard was animating.
+      if (document.activeElement !== event.target) return;
+
+      const rect = event.target.getBoundingClientRect();
+      if (rect.top < 0 || rect.bottom > window.innerHeight) {
+        event.target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+    }, 300);
+  });
+
   fitView();
 }
 

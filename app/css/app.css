@@ -500,9 +500,36 @@
 }
 
 @media (max-width: 900px) {
-  /* The canvas needs a usable height once the panel stacks beneath it. */
+  /* Below this width the page scrolls as a whole rather than the app being
+     pinned to the viewport with a scrolling panel inside it.
+
+     A soft keyboard shrinks the viewport. With the app locked to 100dvh and
+     the panel as the scroll container, a focused field near the bottom ends up
+     outside the visible area with nowhere to scroll to — the browser cannot
+     bring it into view, so it dismisses the keyboard instead. Letting the page
+     scroll restores the browser's normal scroll-into-view behaviour. */
+  .app {
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
   .main {
-    grid-template-rows: minmax(320px, 55vh) auto;
+    grid-template-rows: auto auto;
+  }
+
+  .stage {
+    /* svh rather than vh or dvh: the small-viewport unit is the height with
+       browser chrome and keyboard showing, so the canvas keeps a stable size
+       instead of resizing under the user's finger. */
+    height: 55vh;
+    height: 55svh;
+    min-height: 300px;
+  }
+
+  .panel {
+    /* The page is the scroll container now, not this. */
+    overflow: visible;
   }
 
   /* The actions take their own line below the brand and badge. This only
