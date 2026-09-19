@@ -106,6 +106,7 @@ function drawCanvas() {
     selectedId: state.selectedId,
     guides: state.guides,
     gridMm: state.settings.showGrid ? state.settings.snap.gridMm : 0,
+    penWidthMm: state.settings.penWidthMm,
   });
 }
 
