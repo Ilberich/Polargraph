@@ -183,3 +183,81 @@ test('a real-world export with declaration, doctype and comments imports', () =>
   assert.equal(paths[0].meta.id, 'p1');
   assert.equal(paths[0].closed, true);
 });
+
+// ----------------------------------------------- closed-ness and filling --
+
+test('a path that returns to its start is closed without Z', () => {
+  // Plenty of tools emit the closing point instead of the command.
+  const { paths } = importSvg(
+    '<svg width="100mm" height="100mm" viewBox="0 0 100 100">' +
+      '<path d="M10 10 L90 10 L90 90 L10 90 L10 10"/></svg>'
+  );
+
+  assert.equal(paths[0].closed, true);
+  assert.equal(paths[0].points.length, 4, 'the repeated start point is dropped');
+});
+
+test('a polyline whose ends meet is closed', () => {
+  const { paths } = importSvg(
+    '<svg width="100mm" height="100mm" viewBox="0 0 100 100">' +
+      '<polyline points="10,10 90,10 90,90 10,90 10,10" fill="none"/></svg>'
+  );
+
+  assert.equal(paths[0].closed, true);
+});
+
+test('a genuinely open path stays open', () => {
+  const { paths } = importSvg(
+    '<svg width="100mm" height="100mm" viewBox="0 0 100 100">' +
+      '<path d="M10 10 L90 50 L20 90" fill="none"/></svg>'
+  );
+
+  assert.equal(paths[0].closed, false);
+});
+
+test('an unfilled shape is marked unfilled', () => {
+  const { paths } = importSvg(
+    '<svg width="100mm" height="100mm" viewBox="0 0 100 100">' +
+      '<path d="M10 10 L90 50 L20 90" fill="none"/></svg>'
+  );
+
+  assert.equal(paths[0].meta.filled, false);
+});
+
+test('a shape with no fill attribute is filled, as SVG says', () => {
+  // SVG's initial fill is black, so silence means filled. A filled shape has
+  // an inside even when its outline is not explicitly closed.
+  const { paths } = importSvg(
+    '<svg width="100mm" height="100mm" viewBox="0 0 100 100">' +
+      '<path d="M10 10 L90 50 L20 90"/></svg>'
+  );
+
+  assert.equal(paths[0].meta.filled, true);
+});
+
+test('fill is inherited from an ancestor group', () => {
+  const { paths } = importSvg(
+    '<svg width="100mm" height="100mm" viewBox="0 0 100 100">' +
+      '<g fill="none"><g><path d="M10 10 L90 50 L20 90"/></g></g></svg>'
+  );
+
+  assert.equal(paths[0].meta.filled, false);
+});
+
+test('a child overrides an inherited fill', () => {
+  const { paths } = importSvg(
+    '<svg width="100mm" height="100mm" viewBox="0 0 100 100">' +
+      '<g fill="none"><path d="M10 10 L90 50 L20 90" fill="red"/></g></svg>'
+  );
+
+  assert.equal(paths[0].meta.filled, true);
+});
+
+test('a fill in a style attribute beats the presentation attribute', () => {
+  const { paths } = importSvg(
+    '<svg width="100mm" height="100mm" viewBox="0 0 100 100">' +
+      '<path d="M10 10 L90 50 L20 90" fill="red" style="fill:none"/></svg>'
+  );
+
+  assert.equal(paths[0].meta.filled, false);
+});

@@ -35,6 +35,21 @@ const NON_RENDERING = new Set([
 /** Containers whose children are drawn in the parent's coordinate system. */
 const CONTAINERS = new Set(['g', 'a', 'switch']);
 
+/**
+ * The fill in force on an element, or null when it inherits.
+ *
+ * `style` wins over the presentation attribute, as in CSS.
+ */
+function declaredFill(attrs) {
+  const style = attrs.style ?? '';
+  const inStyle = /(?:^|[;\s])fill\s*:\s*([^;]+)/.exec(style);
+
+  if (inStyle) return inStyle[1].trim().toLowerCase();
+  if (attrs.fill != null) return String(attrs.fill).trim().toLowerCase();
+
+  return null;
+}
+
 function isHidden(attrs) {
   if (attrs.display === 'none') return true;
 
@@ -102,16 +117,21 @@ export function importSvg(source, { toleranceMm = DEFAULT_TOLERANCE_MM } = {}) {
 
   const paths = [];
 
-  const walk = (node, parentMatrix) => {
+  // SVG's initial fill is black, so an element that says nothing about fill is
+  // filled. That matters here because a filled shape has an inside even when
+  // its outline is not explicitly closed — the renderer closes it implicitly —
+  // and that inside is exactly what a hatch fill needs.
+  const walk = (node, parentMatrix, parentFill) => {
     for (const child of node.children) {
       if (NON_RENDERING.has(child.tag)) continue;
       if (isHidden(child.attrs)) continue;
 
       // A child's own transform applies before its parent's.
       const matrix = multiply(parentMatrix, parseTransform(child.attrs.transform));
+      const fill = declaredFill(child.attrs) ?? parentFill;
 
       if (CONTAINERS.has(child.tag)) {
-        walk(child, matrix);
+        walk(child, matrix, fill);
         continue;
       }
 
@@ -130,12 +150,12 @@ export function importSvg(source, { toleranceMm = DEFAULT_TOLERANCE_MM } = {}) {
         // applied, so nested scaling will be wrong. Rare enough to warn about
         // rather than guess at.
         warnings.push('Nested <svg> treated as a group; its viewBox was ignored.');
-        walk(child, matrix);
+        walk(child, matrix, fill);
         continue;
       }
 
       if (!SHAPE_TAGS.has(child.tag)) {
-        walk(child, matrix);
+        walk(child, matrix, fill);
         continue;
       }
 
@@ -153,7 +173,15 @@ export function importSvg(source, { toleranceMm = DEFAULT_TOLERANCE_MM } = {}) {
 
       for (const sub of pathDataToPolylines(d, localTolerance)) {
         const path = transformPath(
-          createPath(sub.points, { closed: sub.closed, meta: { tag: child.tag, id: child.attrs.id } }),
+          createPath(sub.points, {
+            closed: sub.closed,
+            meta: {
+              tag: child.tag,
+              id: child.attrs.id,
+              // `none` is the only value that means "no inside".
+              filled: fill !== 'none',
+            },
+          }),
           matrix
         );
 
@@ -162,7 +190,7 @@ export function importSvg(source, { toleranceMm = DEFAULT_TOLERANCE_MM } = {}) {
     }
   };
 
-  walk(svg, rootMatrix);
+  walk(svg, rootMatrix, declaredFill(svg.attrs) ?? 'black');
 
   return {
     paths,

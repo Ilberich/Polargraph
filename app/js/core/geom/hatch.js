@@ -45,6 +45,20 @@ export const DEFAULTS = {
   boustrophedon: true,
 };
 
+/**
+ * Does this path enclose an area a fill could go inside?
+ *
+ * Not the same question as "is it flagged closed". A path is fillable if it
+ * is explicitly closed, or if the renderer would fill it anyway — SVG closes
+ * an open path implicitly when filling it, so a filled shape has an inside
+ * however its outline was written. Tools omit the closing command far more
+ * often than one would hope.
+ */
+export function isFillable(path) {
+  if (!path || path.points.length < 3) return false;
+  return path.closed || path.meta?.filled === true;
+}
+
 /** Edges of a closed polygon, skipping any that are horizontal after rotation. */
 function edgesOf(points) {
   const edges = [];
@@ -176,7 +190,7 @@ function hatchOnce(outlines, { spacingMm, angleDeg, rule, boustrophedon }) {
 export function hatchFill(paths, options = {}) {
   const settings = { ...DEFAULTS, ...options };
 
-  const outlines = paths.filter((p) => p.closed && !isDegenerate(p));
+  const outlines = paths.filter((p) => isFillable(p) && !isDegenerate(p));
   if (outlines.length === 0) return [];
 
   const first = hatchOnce(outlines, settings);

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { hatchFill, isInside, DEFAULTS } from './hatch.js';
+import { hatchFill, isInside, isFillable, DEFAULTS } from './hatch.js';
 import { createPath, pathLength, boundsOf } from './path.js';
 
 const close = (a, b, tol = 1e-6) =>
@@ -230,4 +230,36 @@ test('the inside test agrees with where lines are drawn', () => {
 test('the defaults are usable', () => {
   const lines = hatchFill([square(0, 0, 50)], DEFAULTS);
   assert.ok(lines.length > 10);
+});
+
+// ------------------------------------------------------- what can be filled --
+
+test('a filled but unclosed path can still be hatched', () => {
+  // SVG closes an open path implicitly when filling it, so the shape has an
+  // inside however its outline was written. Refusing to fill it told the user
+  // their drawing had no closed shapes when it plainly did.
+  const open = createPath([
+    { x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 },
+  ], { closed: false, meta: { filled: true } });
+
+  const lines = hatchFill([open], { spacingMm: 10, angleDeg: 0 });
+  assert.ok(lines.length >= 9, `expected a full fill, got ${lines.length}`);
+});
+
+test('an open unfilled path is still not hatched', () => {
+  const stroke = createPath([
+    { x: 0, y: 0 }, { x: 100, y: 50 }, { x: 20, y: 100 },
+  ], { closed: false, meta: { filled: false } });
+
+  assert.deepEqual(hatchFill([stroke]), []);
+});
+
+test('fillability covers closed, filled, and neither', () => {
+  const points = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }];
+
+  assert.equal(isFillable(createPath(points, { closed: true })), true);
+  assert.equal(isFillable(createPath(points, { meta: { filled: true } })), true);
+  assert.equal(isFillable(createPath(points)), false);
+  assert.equal(isFillable(createPath([{ x: 0, y: 0 }], { closed: true })), false);
+  assert.equal(isFillable(null), false);
 });

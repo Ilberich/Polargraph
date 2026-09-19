@@ -277,17 +277,24 @@ export function pathDataToPolylines(d, tolerance = DEFAULT_TOLERANCE) {
   let lastCubicControl = null;
   let lastQuadControl = null;
 
-  const flush = (closed) => {
-    // A closed subpath whose geometry already lands on its start point would
-    // otherwise store that point twice — every circle does this, because its
-    // final arc returns to the start before `Z` closes it. The closing segment
-    // is implied by `closed`, so the duplicate is dropped.
-    if (closed && points.length > 1) {
+  const flush = (explicitlyClosed) => {
+    let closed = explicitlyClosed;
+
+    // A subpath that ends where it began is closed, whether or not `Z` said
+    // so. Plenty of tools emit the closing point instead of the command —
+    // and a shape that is geometrically a loop has an inside to fill however
+    // it was written.
+    //
+    // The duplicate point is then dropped: the closing segment is implied by
+    // `closed`, and every circle produces one anyway because its final arc
+    // lands on the start before `Z` closes it.
+    if (points.length > 2) {
       const first = points[0];
       const last = points[points.length - 1];
 
       if (Math.hypot(last.x - first.x, last.y - first.y) < CLOSE_EPSILON) {
         points.pop();
+        closed = true;
       }
     }
 

@@ -13,7 +13,7 @@
 
 import { compose, translation, scaling, rotation as rotate, apply } from '../geom/matrix.js';
 import { transformPath, boundsOf } from '../geom/path.js';
-import { hatchFill, DEFAULTS as HATCH_DEFAULTS } from '../geom/hatch.js';
+import { hatchFill, isFillable, DEFAULTS as HATCH_DEFAULTS } from '../geom/hatch.js';
 
 /** Hatch settings a placement starts with, until the user turns it on. */
 export const DEFAULT_HATCH = { enabled: false, ...HATCH_DEFAULTS };
@@ -83,7 +83,7 @@ export function createPlacement({
 
 /** Does this placement contain anything a fill could go inside? */
 export function canHatch(placement) {
-  return placement.paths.some((path) => path.closed && path.points.length >= 3);
+  return placement.paths.some(isFillable);
 }
 
 /**
