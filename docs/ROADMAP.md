@@ -76,7 +76,7 @@ Notes for later phases:
 
 ---
 
-## Phase 3 — Gcode pipeline — **in progress**
+## Phase 3 — Gcode pipeline — **complete**
 
 The features that make output good rather than merely correct.
 
@@ -159,8 +159,24 @@ The features that make output good rather than merely correct.
     being watched.
 - **Time estimate:** trapezoidal velocity model over path length, feed rate and
   acceleration; live update.
-- **Pen depth authoring:** per-path and along-path Z, previewed as variable line
-  weight.
+- **Pen depth authoring:** done. Z is a continuous axis rather than up-or-down
+  (AD-2), so depth is a value to author. It belongs to the layer, because a
+  layer is a pen and how hard a pen presses is a property of that pen. The job
+  carries a default for anything unassigned, and a travel height beside it.
+  - A layer may also give a depth to finish at, and then every stroke on it
+    ramps from one to the other along its own length — calligraphic strokes
+    without authoring each one. Setting both the same turns the ramp off.
+  - The ramp runs by distance along the stroke, not by vertex, so an unevenly
+    flattened curve still ramps evenly across the paper.
+  - Depth is applied after the optimizer, not before: it reverses and merges
+    strokes, and a ramp authored beforehand would run backwards through half
+    the drawing and meet itself at every join.
+  - The depth controls only appear with a pen axis fitted. Without one there is
+    no Z to write.
+  - **Not** previewed as variable line weight, though the plan said so: the
+    canvas deliberately draws a constant hairline, and making strokes change
+    width would be the app guessing at a tip size it is never told. The numbers
+    are on the layer; the depth is in the gcode.
 
 - **Panel layout:** objects, layers, paint and fill share one tabbed card. Only
   one of them is ever being worked on, and stacked they pushed everything else
@@ -176,8 +192,9 @@ The features that make output good rather than merely correct.
     the second finger lands a moment after the first, and anything dragged,
     filled or brushed in between was never meant.
 
-**Done when:** a multi-layer hatched drawing exports with optimized ordering and
-an accurate time estimate.
+**Done:** a multi-layer hatched drawing exports with optimized ordering, an
+accurate time estimate, authored pen depth, and a scrubber to watch it back.
+451 tests.
 
 ---
 

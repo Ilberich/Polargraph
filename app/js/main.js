@@ -23,6 +23,7 @@ import {
   addLayer, updateLayer, removeLayer, reorderLayer, scenePathsByLayer,
 } from './core/scene/scene.js';
 import { createLayer, assignPaths } from './core/scene/layers.js';
+import { layerDepth, applyDepth } from './core/scene/depth.js';
 import {
   createPlacement, placementMatrix, fillableShapes, topLevelShapes,
 } from './core/scene/placement.js';
@@ -41,6 +42,8 @@ const DEFAULT_SETTINGS = {
   feedRate: 1200,
   travelFeedRate: 3000,
   penLift: false,
+  /** How deep the pen draws by default, mm. Negative presses harder. */
+  drawZ: 0,
   travelZ: 5,
   optimize: true,
   acceleration: 200,
@@ -205,8 +208,14 @@ function buildJob({ withBaseline = false } = {}) {
   // different pen's section would mean drawing them in the wrong colour.
   let report = null;
 
+  // Depth is put on after ordering, not before: the optimizer reverses and
+  // merges strokes, and a ramp authored beforehand would run backwards through
+  // half the drawing.
+  const withDepth = (group, paths) =>
+    applyDepth(paths, layerDepth(group.layer, state.settings.drawZ));
+
   const optimized = groups.map((group) => {
-    if (!state.settings.optimize) return group;
+    if (!state.settings.optimize) return { ...group, paths: withDepth(group, group.paths) };
 
     const result = optimize(group.paths);
     report = report
@@ -219,10 +228,11 @@ function buildJob({ withBaseline = false } = {}) {
         }
       : result.report;
 
-    return { ...group, paths: result.paths };
+    return { ...group, paths: withDepth(group, result.paths) };
   });
 
-  // The same job unoptimized, for the time comparison.
+  // The same job unoptimized, for the time comparison. Depth costs no time, so
+  // the baseline does not need it.
   const baseline = withBaseline && report ? writeLayeredGcode(groups, options) : null;
 
   return {

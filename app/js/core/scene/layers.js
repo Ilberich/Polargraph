@@ -34,7 +34,9 @@ export const LAYER_COLOURS = [
   '#b98fd0',
 ];
 
-export function createLayer({ name = null, color = null, visible = true } = {}) {
+export function createLayer({
+  name = null, color = null, visible = true, z = null, zEnd = null,
+} = {}) {
   const index = nextLayerId - 1;
 
   return {
@@ -42,6 +44,14 @@ export function createLayer({ name = null, color = null, visible = true } = {}) 
     name: name ?? `Layer ${nextLayerId - 1}`,
     color: color ?? LAYER_COLOURS[index % LAYER_COLOURS.length],
     visible,
+    /**
+     * How deep this pen draws, and what to finish at.
+     *
+     * `null` takes the job's own depth. `zEnd` set makes every stroke on the
+     * layer ramp along its length — see scene/depth.js.
+     */
+    z,
+    zEnd,
   };
 }
 

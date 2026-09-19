@@ -213,6 +213,38 @@ function layersPane(state, actions) {
         onClick: () => actions.reorderLayer(selected.id, 1),
       }),
     ].filter(Boolean)),
+
+    ...(selected ? depthFields(state, actions, selected) : []),
+  ];
+}
+
+/**
+ * How hard this pen presses, and what it finishes at.
+ *
+ * Only offered on a machine with a pen axis: without one there is no Z to
+ * write, and a control that silently does nothing is worse than one that is
+ * not there.
+ */
+function depthFields(state, actions, layer) {
+  if (!state.settings.penLift) return [];
+
+  const start = layer.z ?? state.settings.drawZ;
+
+  return [
+    el('div', { class: 'field-grid' }, [
+      numberField({
+        label: 'Depth', value: start, step: 0.1, unit: 'mm', id: 'layer-z',
+        onCommit: (v) => actions.updateLayer(layer.id, { z: v }),
+      }),
+      numberField({
+        label: 'Depth at end', value: layer.zEnd ?? start, step: 0.1, unit: 'mm',
+        id: 'layer-z-end',
+        onCommit: (v) => actions.updateLayer(layer.id, { zEnd: v }),
+      }),
+    ]),
+    el('p', { class: 'hint' },
+      'Lower presses harder. The same at both ends draws evenly; different, and ' +
+      'every stroke on this layer ramps from one to the other along its length.'),
   ];
 }
 
@@ -534,6 +566,18 @@ function outputCard(state, actions) {
       !settings.penLift &&
         el('p', { class: 'hint' },
           'Without a pen axis every travel move draws, so the plot is one continuous line.'),
+    ]),
+
+    settings.penLift && el('div', { class: 'field-grid' }, [
+      numberField({
+        label: 'Pen depth', value: settings.drawZ, step: 0.1, unit: 'mm', id: 'output-draw-z',
+        onCommit: (v) => actions.setSettings({ drawZ: v }),
+      }),
+      numberField({
+        label: 'Travel height', value: settings.travelZ, step: 0.5, unit: 'mm',
+        id: 'output-travel-z',
+        onCommit: (v) => actions.setSettings({ travelZ: v }),
+      }),
     ]),
 
     el('div', { class: 'stack' }, [
