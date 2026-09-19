@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   createPlacement, placementMatrix, placementBounds, worldPaths, hitTest,
-  placementLength, resetIds, placementPaths, canHatch,
+  placementLength, resetIds, placementPaths, canHatch, fillableShapes,
 } from './placement.js';
 import { createPath } from '../geom/path.js';
 import { apply } from '../geom/matrix.js';
@@ -16,6 +16,14 @@ const rect = () =>
   createPath([
     { x: 100, y: 200 }, { x: 110, y: 200 }, { x: 110, y: 220 }, { x: 100, y: 220 },
   ], { closed: true });
+
+/** A placement with every closed shape in it filled. */
+const filledPlacement = (options) => {
+  const placement = createPlacement(options);
+  const fills = Object.fromEntries(fillableShapes(placement).map((s) => [s.id, null]));
+
+  return { ...placement, fills };
+};
 
 test('a placement lands where the source put it', () => {
   const placement = createPlacement({ paths: [rect()] });
@@ -141,10 +149,10 @@ test('ids are unique', () => {
 
 // ------------------------------------------------------------ hatch fill --
 
-test('a placement starts with hatch off', () => {
+test('a placement starts with nothing filled', () => {
   const placement = createPlacement({ paths: [rect()] });
 
-  assert.equal(placement.hatch.enabled, false);
+  assert.deepEqual(placement.fills, {});
   assert.deepEqual(placementPaths(placement), placement.paths);
 });
 
@@ -156,31 +164,51 @@ test('closed shapes can be hatched, open ones cannot', () => {
   );
 });
 
-test('enabling hatch adds fill lines to the placement', () => {
+test('a closed shape is only filled once it is chosen', () => {
+  // Filling everything closed is rarely what a drawing wants, so nothing is
+  // filled until the fill tool says so.
   const placement = createPlacement({
     paths: [rect()],
-    hatch: { enabled: true, spacingMm: 2, angleDeg: 0 },
+    hatch: { spacingMm: 2, angleDeg: 0 },
   });
 
-  const paths = placementPaths(placement);
+  assert.equal(placementPaths(placement), placement.paths);
+
+  const chosen = { ...placement, fills: { [placement.paths[0].id]: null } };
+  const paths = placementPaths(chosen);
+
   assert.ok(paths.length > 1, 'the outline plus fill lines');
   assert.equal(paths[0], placement.paths[0], 'the outline is still first');
 });
 
+test('a fill draws on its own layer, not the shape\u2019s', () => {
+  const placement = createPlacement({
+    paths: [rect()],
+    hatch: { spacingMm: 2, angleDeg: 0 },
+    layerId: 'l1',
+  });
+
+  const filled = { ...placement, fills: { [placement.paths[0].id]: 'l2' } };
+  const lines = placementPaths(filled).slice(1);
+
+  assert.ok(lines.length > 0);
+  assert.ok(lines.every((line) => line.meta.fillLayerId === 'l2'));
+});
+
 test('hatch is included in the placement length', () => {
   const plain = createPlacement({ paths: [rect()] });
-  const filled = createPlacement({
+  const filled = filledPlacement({
     paths: [rect()],
-    hatch: { enabled: true, spacingMm: 2, angleDeg: 0 },
+    hatch: { spacingMm: 2, angleDeg: 0 },
   });
 
   assert.ok(placementLength(filled) > placementLength(plain));
 });
 
 test('hatch transforms with the shape', () => {
-  const placement = createPlacement({
+  const placement = filledPlacement({
     paths: [rect()],
-    hatch: { enabled: true, spacingMm: 5, angleDeg: 0 },
+    hatch: { spacingMm: 5, angleDeg: 0 },
     scale: 2,
   });
 
@@ -197,18 +225,19 @@ test('hatch transforms with the shape', () => {
 test('hatch spacing is measured on paper, not in source units', () => {
   // A stated 0.5mm must be 0.5mm on the sheet whatever the object is scaled
   // to — it is chosen against a physical pen.
-  const plain = createPlacement({
+  const plain = filledPlacement({
     paths: [rect()],
-    hatch: { enabled: true, spacingMm: 2, angleDeg: 0 },
+    hatch: { spacingMm: 2, angleDeg: 0 },
   });
-  const scaled = createPlacement({
+  const scaled = filledPlacement({
     paths: [rect()],
-    hatch: { enabled: true, spacingMm: 2, angleDeg: 0 },
+    hatch: { spacingMm: 2, angleDeg: 0 },
     scale: 4,
   });
 
   // Four times the area across, so four times the lines at the same paper gap.
   const lines = (p) => placementPaths(p).length - p.paths.length;
+  assert.ok(lines(plain) > 0);
   assert.ok(
     lines(scaled) >= lines(plain) * 3.5,
     `expected about 4x the lines, got ${lines(scaled)} vs ${lines(plain)}`
@@ -216,9 +245,9 @@ test('hatch spacing is measured on paper, not in source units', () => {
 });
 
 test('a zero scale does not make spacing meaningless', () => {
-  const placement = createPlacement({
+  const placement = filledPlacement({
     paths: [rect()],
-    hatch: { enabled: true, spacingMm: 2, angleDeg: 0 },
+    hatch: { spacingMm: 2, angleDeg: 0 },
     scale: 0,
   });
 
@@ -228,25 +257,40 @@ test('a zero scale does not make spacing meaningless', () => {
 test('hatch is computed once and reused across moves', () => {
   // Moving a placement makes a new object but keeps the same source paths, so
   // the fill must not be recomputed on every frame of a drag.
-  const placement = createPlacement({
+  const placement = filledPlacement({
     paths: [rect()],
-    hatch: { enabled: true, spacingMm: 1, angleDeg: 0 },
+    hatch: { spacingMm: 1, angleDeg: 0 },
   });
 
   const before = placementPaths(placement);
   const moved = { ...placement, x: placement.x + 50 };
 
+  assert.ok(before.length > 1);
   assert.equal(placementPaths(moved), before, 'same array, not merely equal');
 });
 
 test('changing hatch settings recomputes', () => {
-  const placement = createPlacement({
+  const placement = filledPlacement({
     paths: [rect()],
-    hatch: { enabled: true, spacingMm: 5, angleDeg: 0 },
+    hatch: { spacingMm: 5, angleDeg: 0 },
   });
 
   const coarse = placementPaths(placement);
   const fine = placementPaths({ ...placement, hatch: { ...placement.hatch, spacingMm: 1 } });
 
   assert.ok(fine.length > coarse.length);
+});
+
+test('choosing a different shape recomputes', () => {
+  const a = rect();
+  const b = createPath(
+    [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 40 }, { x: 0, y: 40 }],
+    { closed: true }
+  );
+  const placement = createPlacement({ paths: [a, b], hatch: { spacingMm: 2, angleDeg: 0 } });
+
+  const small = placementPaths({ ...placement, fills: { [a.id]: null } });
+  const large = placementPaths({ ...placement, fills: { [b.id]: null } });
+
+  assert.ok(large.length > small.length);
 });

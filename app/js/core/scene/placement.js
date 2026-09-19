@@ -16,8 +16,14 @@ import { transformPath, boundsOf } from '../geom/path.js';
 import { hatchFill, isFillable, DEFAULTS as HATCH_DEFAULTS } from '../geom/hatch.js';
 import { rejoinCuts } from './select.js';
 
-/** Hatch settings a placement starts with, until the user turns it on. */
-export const DEFAULT_HATCH = { enabled: false, ...HATCH_DEFAULTS };
+/**
+ * Hatch settings a placement starts with.
+ *
+ * These describe *how* a fill is drawn. *What* is filled is a separate
+ * question, answered per shape by `fills` — filling everything closed is
+ * rarely what a drawing wants.
+ */
+export const DEFAULT_HATCH = { ...HATCH_DEFAULTS };
 
 /**
  * Computed hatch lines, keyed by the source paths and the settings used.
@@ -54,6 +60,7 @@ export function createPlacement({
   scale = 1,
   visible = true,
   hatch = DEFAULT_HATCH,
+  fills = {},
   layerId = null,
   pathLayers = {},
   id = null,
@@ -81,6 +88,13 @@ export function createPlacement({
     scale,
     visible,
     hatch: { ...DEFAULT_HATCH, ...hatch },
+    /**
+     * Which shapes are filled, and on which layer.
+     *
+     * Keyed by the stable id of the shape's outline, with the layer its hatch
+     * draws on — null meaning the placement's own. Absent means not filled.
+     */
+    fills: { ...fills },
     /** Default pen for everything in this placement. */
     layerId,
     /** Per-path overrides, keyed by stable path id. */
@@ -95,7 +109,40 @@ export function createPlacement({
  * another pen does not make it look as though the shape stopped being closed.
  */
 export function canHatch(placement) {
-  return rejoinCuts(placement.paths).some(isFillable);
+  return fillableShapes(placement).length > 0;
+}
+
+/**
+ * The shapes in this placement that a fill could go inside.
+ *
+ * Outlines are rejoined first, so painting part of a shape onto another layer
+ * does not make it look as though the shape stopped being closed.
+ */
+export function fillableShapes(placement) {
+  return rejoinCuts(placement.paths).filter(isFillable);
+}
+
+/**
+ * Filled shapes grouped by the layer their hatch draws on.
+ *
+ * Grouped rather than hatched one at a time because the fill rule only means
+ * anything across a set of outlines: a ring is hollow because its inner circle
+ * is counted against its outer one. Shapes filled in the same colour are the
+ * natural group — one fill, one colour, holes and all.
+ */
+function fillGroups(placement) {
+  const groups = new Map();
+
+  for (const shape of fillableShapes(placement)) {
+    const layerId = placement.fills?.[shape.id];
+    if (layerId === undefined) continue;
+
+    const key = layerId ?? '';
+    if (!groups.has(key)) groups.set(key, { layerId: layerId ?? null, shapes: [] });
+    groups.get(key).shapes.push(shape);
+  }
+
+  return [...groups.values()];
 }
 
 /**
@@ -115,7 +162,8 @@ export function canHatch(placement) {
  * area does take longer to draw.
  */
 export function placementPaths(placement) {
-  if (!placement.hatch?.enabled) return placement.paths;
+  const fills = placement.fills ?? {};
+  if (Object.keys(fills).length === 0) return placement.paths;
 
   const { angleDeg, cross, rule, boustrophedon } = placement.hatch;
 
@@ -123,7 +171,9 @@ export function placementPaths(placement) {
   const scale = Math.abs(placement.scale) || 1;
   const spacingMm = placement.hatch.spacingMm / scale;
 
-  const key = `${spacingMm}|${angleDeg}|${cross}|${rule}|${boustrophedon}`;
+  const key = `${spacingMm}|${angleDeg}|${cross}|${rule}|${boustrophedon}|${
+    Object.entries(fills).map(([id, layerId]) => `${id}:${layerId ?? ''}`).sort().join(',')
+  }`;
 
   let cached = hatchCache.get(placement.paths);
   if (!cached) {
@@ -135,10 +185,14 @@ export function placementPaths(placement) {
   // every render frame otherwise, which for a dense fill is a copy of
   // thousands of entries per frame for no gain.
   if (!cached.has(key)) {
-    cached.set(key, [
-      ...placement.paths,
-      ...hatchFill(rejoinCuts(placement.paths), { ...placement.hatch, spacingMm }),
-    ]);
+    const lines = fillGroups(placement).flatMap((group) =>
+      hatchFill(group.shapes, { ...placement.hatch, spacingMm }).map((line) => ({
+        ...line,
+        // A fill draws on its own layer, not the shape's — see layerIdFor.
+        meta: { ...line.meta, fillLayerId: group.layerId },
+      })));
+
+    cached.set(key, [...placement.paths, ...lines]);
   }
 
   return cached.get(key);

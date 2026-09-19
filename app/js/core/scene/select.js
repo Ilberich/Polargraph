@@ -13,7 +13,8 @@
  */
 
 import { distanceToSegment } from '../geom/vec2.js';
-import { createPath } from '../geom/path.js';
+import { createPath, polygonArea } from '../geom/path.js';
+import { isFillable, isInside } from '../geom/hatch.js';
 
 /**
  * How many segments a path has.
@@ -83,6 +84,28 @@ export function pickPath(paths, point, tolerance) {
   }
 
   return best;
+}
+
+/**
+ * The shape a fill click landed in.
+ *
+ * Clicking inside a shape is how a fill tool is used, so containment comes
+ * first and the smallest containing shape wins — clicking the hole of a ring
+ * should offer the hole, not the ring around it. Landing inside nothing falls
+ * back to the nearest outline, so a shape can also be filled by clicking its
+ * edge.
+ */
+export function pickShape(paths, point, tolerance = 0) {
+  const outlines = paths.filter(isFillable);
+
+  const containing = outlines.filter((path) => isInside([path], point, 'evenodd'));
+
+  if (containing.length > 0) {
+    return containing.reduce((best, path) =>
+      polygonArea(path) < polygonArea(best) ? path : best);
+  }
+
+  return pickPath(outlines, point, tolerance);
 }
 
 /**

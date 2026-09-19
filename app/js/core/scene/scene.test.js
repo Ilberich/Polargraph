@@ -248,12 +248,14 @@ test('a hidden layer is not plotted at all', () => {
   assert.equal(scenePaths(scene).length, 1, 'hiding a layer means not drawing it');
 });
 
-test('hatch lines inherit the placement layer', () => {
+test('a fill drawn on the object\u2019s own layer stays with it', () => {
   const layer = createLayer({ name: 'Fill' });
+  const shape = box(0, 0, 40, 40);
   const placement = createPlacement({
-    paths: [box(0, 0, 40, 40)],
+    paths: [shape],
     layerId: layer.id,
-    hatch: { enabled: true, spacingMm: 5, angleDeg: 0 },
+    hatch: { spacingMm: 5, angleDeg: 0 },
+    fills: { [shape.id]: null },
   });
 
   const scene = addPlacement(addLayer(createScene({ paper }), layer), placement);
@@ -261,4 +263,26 @@ test('hatch lines inherit the placement layer', () => {
 
   assert.equal(groups.length, 1);
   assert.ok(groups[0].paths.length > 5, 'outline and fill together');
+});
+
+test('a fill can be drawn on a different layer from its outline', () => {
+  const outline = createLayer({ name: 'Outline' });
+  const ink = createLayer({ name: 'Ink' });
+  const shape = box(0, 0, 40, 40);
+
+  const placement = createPlacement({
+    paths: [shape],
+    layerId: outline.id,
+    hatch: { spacingMm: 5, angleDeg: 0 },
+    fills: { [shape.id]: ink.id },
+  });
+
+  let scene = addLayer(addLayer(createScene({ paper }), outline), ink);
+  scene = addPlacement(scene, placement);
+
+  const groups = scenePathsByLayer(scene);
+  const byLayer = new Map(groups.map((g) => [g.layer?.id ?? null, g.paths]));
+
+  assert.equal(byLayer.get(outline.id).length, 1, 'just the outline');
+  assert.ok(byLayer.get(ink.id).length > 4, 'the fill, on its own layer');
 });

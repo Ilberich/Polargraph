@@ -202,7 +202,7 @@ export function hatchFill(paths, options = {}) {
   ];
 }
 
-/** Is a point inside the outlines, under the given fill rule? Used by tests. */
+/** Is a point inside the outlines, under the given fill rule? */
 export function isInside(outlines, point, rule = DEFAULTS.rule) {
   const edges = outlines.flatMap((path) => edgesOf(path.points));
   const crossings = crossingsAt(edges, point.y);

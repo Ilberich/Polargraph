@@ -14,8 +14,8 @@ test('layers get a name and a colour', () => {
   const first = createLayer();
   const second = createLayer();
 
-  assert.equal(first.name, 'Pen 1');
-  assert.equal(second.name, 'Pen 2');
+  assert.equal(first.name, 'Layer 1');
+  assert.equal(second.name, 'Layer 2');
   assert.notEqual(first.color, second.color);
   assert.equal(first.color, LAYER_COLOURS[0]);
 });

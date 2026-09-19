@@ -83,6 +83,25 @@ export function pathLength(path) {
 }
 
 /** Apply an affine transform. Z passes through: the matrix is planar. */
+/**
+ * Area enclosed by a path, treating it as closed.
+ *
+ * The shoelace formula, unsigned — direction is not interesting here, only
+ * size, which is what tells a shape apart from the shape inside it.
+ */
+export function polygonArea(path) {
+  const points = path.points;
+  let twice = 0;
+
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    twice += a.x * b.y - b.x * a.y;
+  }
+
+  return Math.abs(twice) / 2;
+}
+
 export function transformPath(path, matrix) {
   return {
     ...path,

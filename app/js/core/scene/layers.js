@@ -39,14 +39,24 @@ export function createLayer({ name = null, color = null, visible = true } = {}) 
 
   return {
     id: `l${nextLayerId++}`,
-    name: name ?? `Pen ${nextLayerId - 1}`,
+    name: name ?? `Layer ${nextLayerId - 1}`,
     color: color ?? LAYER_COLOURS[index % LAYER_COLOURS.length],
     visible,
   };
 }
 
-/** The layer a path belongs to, falling back to its placement's default. */
+/**
+ * The layer a path belongs to, falling back to its placement's default.
+ *
+ * A hatch line carries its own layer, set when the shape was filled. It is not
+ * the shape's: filling a blue outline with red hatching is the ordinary case,
+ * not an odd one, and the hatch is not in the paths a per-path override could
+ * be held against — it is generated from them.
+ */
 export function layerIdFor(placement, path) {
+  const fillLayerId = path.meta?.fillLayerId;
+  if (fillLayerId !== undefined) return fillLayerId ?? placement.layerId ?? null;
+
   return placement.pathLayers?.[path.id] ?? placement.layerId ?? null;
 }
 
