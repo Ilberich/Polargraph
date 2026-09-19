@@ -234,11 +234,49 @@ Built against a host-side simulator first. No hardware required to make progress
   iterable, so a job of any size costs one line of memory. Unknown words and
   unsupported commands are refused with a line number rather than ignored — a
   plotter that skips a word it does not understand draws the wrong picture.
-- **PIO stepper driver** (AD-4): one state machine per axis, segment queue
-- `PenAxis` interface + `NullPen` (AD-2)
-- Job state machine: run, pause, resume, stop, error
-- Pause/resume button on GPIO
-- Error handling and logging per `docs/GCODE.md`
+- **PIO stepper driver** (AD-4): split in two. The timing arithmetic —
+  how many pulses each axis needs, in which direction, how far apart — is
+  hardware-independent and tested on the desktop; the state machines live in
+  `motion/pio.py`, which only imports on the Pico and is **unverified pending
+  Phase 7 bring-up**.
+  - One state machine per axis, each counting its own steps at its own
+    interval. A segment needing 80 left steps and 10 right over the same 100 ms
+    pulses one axis eight times as often as the other, and they finish
+    together. That is the reason there is one per axis rather than a shared
+    interpolator.
+  - A segment asked for faster than the drivers can be pulsed is stretched,
+    both axes together, rather than dropped: every step still happens, so the
+    geometry survives, and the stretch is counted rather than swallowed.
+  - Direction is a plain output, and the state machine is drained before it
+    changes. That costs nothing, because a reversal is the one junction the
+    planner always plans a full stop for.
+- **`PenAxis` + `NullPen`** (AD-2): done. v1 has no pen hardware, so `NullPen`
+  accepts depths, reports them in status and moves nothing — not a stub to be
+  replaced but the v1 implementation, and what makes v1 files
+  forward-compatible with v2 hardware. It says `can_lift = False` rather than
+  letting the app believe travel moves miss the paper.
+- **Job state machine:** done. run, pause, resume, stop, error, over a stream
+  of gcode lines.
+  - **Pausing leaves position trustworthy; stopping does not.** A pause takes
+    effect at a command boundary, so the queue drains and the gondola stops
+    somewhere the planner knew about. A stop abandons what the state machines
+    were part way through, which loses steps, and clears `positionTrusted`
+    (AD-5).
+  - `M0` pauses until something resumes it. A pen swap is not a timed wait.
+  - A move outside what the machine can reach is refused before it is
+    attempted, rather than driving the gondola into the frame.
+  - Status is reported in paper coordinates. The app never has to know where
+    this machine's motors are.
+- **Pause/resume button on GPIO:** done. One button does both jobs — the
+  plotter has no screen to ask which was meant. The debounce is arithmetic and
+  tested off-target; only reading the pin needs hardware.
+- **Error handling and logging** per `docs/GCODE.md`: done, and the
+  distinction that matters is whether anything was lost. A malformed line or an
+  unreachable coordinate moves nothing, so the job stops, logs, and may be
+  resumed past. A fault or a stop is not resumable.
+  - The job holds the *line* iterator rather than a command generator: a
+    generator that raises is finished, and an error a user may resume past must
+    not take the rest of the file with it.
 
 **Done when:** the simulator reproduces input geometry from emitted steps, and
 the same code drives real motors.

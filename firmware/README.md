@@ -3,16 +3,25 @@
 MicroPython for the Raspberry Pi Pico 2 W. **Phase 4 in progress.** See
 [`../docs/ROADMAP.md`](../docs/ROADMAP.md).
 
-Built so far: kinematics, the motion planner, and a streaming gcode parser.
-All three are **plain Python** with no MicroPython-only imports, so the desktop
-simulator in [`../tools/`](../tools/) runs the same modules the Pico will —
-the thing being validated is the firmware itself, not a model of it.
+Built so far, all **plain Python** with no MicroPython-only imports, so the
+desktop simulator in [`../tools/`](../tools/) runs the same modules the Pico
+will — what is being validated is the firmware itself, not a model of it.
 
 ```
 firmware/motion/kinematics.py   XY <-> belt lengths <-> steps
 firmware/motion/planner.py      segmentation, step deltas, bounded lookahead
+firmware/motion/stepper.py      segments -> pulse trains; timing arithmetic
+firmware/motion/pio.py          the state machines. Pico only, unverified.
+firmware/motion/pen.py          PenAxis, and NullPen for v1
 firmware/gcode/parser.py        streaming line-at-a-time parser
+firmware/job.py                 run, pause, resume, stop, error
+firmware/button.py              debounced pause button
 ```
+
+`pio.py` is the only file that needs hardware, and the only one not covered by
+tests. That is deliberate: everything it could get wrong that is not wiring —
+pulse counts, directions, intervals — was moved into `stepper.py`, where it can
+be checked without a motor.
 
 Run their tests with `npm run test:firmware`, or the whole project with
 `npm test`.
