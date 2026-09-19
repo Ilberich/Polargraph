@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Node
+node_modules/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Local machine config — never commit WiFi credentials
+config.json
+*.local.json
