@@ -52,6 +52,17 @@ jobs:
         with:
           enablement: true
 
+      # Stamp the commit onto the app and append it to every module, script
+      # and stylesheet URL. Pages serves assets with a ten-minute max-age and
+      # its headers cannot be configured, so a changed URL is the only way to
+      # stop a browser serving yesterday's JavaScript after a deploy — which
+      # looks exactly like a fix that did not work.
+      #
+      # This edits the checkout in place, immediately before upload. Nothing
+      # is committed, and running the app from a working copy is unaffected.
+      - name: Stamp build
+        run: node tools/stamp-build.mjs app "${GITHUB_SHA::7}"
+
       # The app is plain static files with no build step, so the source
       # directory is the artifact. The same directory is what gets copied to
       # the plotter's SD card. See AD-1.

@@ -10,6 +10,7 @@ import { el, clear, numberField, checkboxField, button, card } from './dom.js';
 import { marginBox, outsideMargins } from '../core/scene/scene.js';
 import { placementBounds, placementLength } from '../core/scene/placement.js';
 import { formatDuration } from '../core/gcode/estimate.js';
+import { BUILD } from '../build.js';
 
 const mm = (value) => `${Math.round(value * 10) / 10}`;
 
@@ -146,6 +147,12 @@ function viewCard(state, actions) {
     }),
     el('div', { class: 'button-row' }, [
       button({ label: 'Fit view', onClick: actions.fitView }),
+    ]),
+
+    // So a stale cache can be told apart from a bug that was never fixed.
+    el('dl', { class: 'spec' }, [
+      el('dt', { class: 'spec__key' }, 'Build'),
+      el('dd', { class: 'spec__value' }, BUILD),
     ]),
   ]);
 }
