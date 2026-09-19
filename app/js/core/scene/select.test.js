@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 
 import {
   segmentCount, segmentEnds, distanceToPath, segmentsWithin, pickPath,
-  runsOf, splitPathBySelection, assignSelection,
+  runsOf, splitPathBySelection, assignSelection, rejoinCuts,
 } from './select.js';
 import { createPath, pathLength } from '../geom/path.js';
-import { createPlacement } from './placement.js';
+import { createPlacement, canHatch } from './placement.js';
 
 /** A horizontal run of unit-length segments along y. */
 const run = (n, y = 0) => createPath(
@@ -18,6 +18,9 @@ const square = () => createPath(
   [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }],
   { closed: true },
 );
+
+/** Start a closed path's points at a different index — the same loop. */
+const rotate = (points, by) => [...points.slice(by), ...points.slice(0, by)];
 
 const totalLength = (paths) => paths.reduce((sum, p) => sum + pathLength(p), 0);
 
@@ -194,4 +197,46 @@ test('the source paths are not modified', () => {
 
   assert.equal(JSON.stringify(path), before);
   assert.deepEqual(placement.paths, [path]);
+});
+
+test('cut pieces rejoin into the shape they came from', () => {
+  const path = square();
+  const pieces = splitPathBySelection(path, new Set([1])).map((p) => p.path);
+  const [rejoined, ...rest] = rejoinCuts(pieces);
+
+  assert.equal(rest.length, 0);
+  assert.equal(rejoined.id, path.id);
+  assert.equal(rejoined.closed, true);
+
+  // The same loop, though it may start at a different point: a cut of a closed
+  // shape has to begin somewhere, and where a loop starts does not matter.
+  assert.deepEqual(rejoined.points, rotate(path.points, 1));
+});
+
+test('rejoining leaves uncut paths alone', () => {
+  const a = run(3);
+  const b = square();
+
+  assert.deepEqual(rejoinCuts([a, b]), [a, b]);
+});
+
+test('a piece cut again still rejoins to the original', () => {
+  const path = run(6);
+  const pieces = splitPathBySelection(path, new Set([2, 3])).map((p) => p.path);
+  const again = pieces.flatMap((piece) =>
+    splitPathBySelection(piece, new Set([0])).map((p) => p.path));
+
+  const [rejoined] = rejoinCuts(again);
+  assert.equal(rejoined.id, path.id);
+  assert.deepEqual(rejoined.points, path.points);
+});
+
+test('painting part of a closed shape keeps it fillable', () => {
+  const path = square();
+  const placement = createPlacement({ paths: [path], layerId: 'l1' });
+  const result = assignSelection(placement, new Map([[path.id, new Set([1])]]), 'l2');
+
+  // The outline is now two strokes on two pens, but the region is still there.
+  assert.equal(result.paths.length, 2);
+  assert.equal(canHatch({ ...placement, paths: result.paths }), true);
 });

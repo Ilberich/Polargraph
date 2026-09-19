@@ -14,6 +14,7 @@
 import { compose, translation, scaling, rotation as rotate, apply } from '../geom/matrix.js';
 import { transformPath, boundsOf } from '../geom/path.js';
 import { hatchFill, isFillable, DEFAULTS as HATCH_DEFAULTS } from '../geom/hatch.js';
+import { rejoinCuts } from './select.js';
 
 /** Hatch settings a placement starts with, until the user turns it on. */
 export const DEFAULT_HATCH = { enabled: false, ...HATCH_DEFAULTS };
@@ -87,9 +88,14 @@ export function createPlacement({
   };
 }
 
-/** Does this placement contain anything a fill could go inside? */
+/**
+ * Does this placement contain anything a fill could go inside?
+ *
+ * Measured against the rejoined outlines, so painting part of a shape onto
+ * another pen does not make it look as though the shape stopped being closed.
+ */
 export function canHatch(placement) {
-  return placement.paths.some(isFillable);
+  return rejoinCuts(placement.paths).some(isFillable);
 }
 
 /**
@@ -131,7 +137,7 @@ export function placementPaths(placement) {
   if (!cached.has(key)) {
     cached.set(key, [
       ...placement.paths,
-      ...hatchFill(placement.paths, { ...placement.hatch, spacingMm }),
+      ...hatchFill(rejoinCuts(placement.paths), { ...placement.hatch, spacingMm }),
     ]);
   }
 

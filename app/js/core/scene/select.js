@@ -144,6 +144,15 @@ export function splitPathBySelection(path, selected) {
   if (chosen.size === total) return [{ path, selected: true }];
 
   const pieces = [];
+
+  // Pieces remember the shape they came from, so a fill can still be worked
+  // out from the whole outline (see rejoinCuts).
+  const meta = {
+    ...path.meta,
+    cutFrom: path.meta?.cutFrom ?? path.id,
+    cutClosed: path.meta?.cutClosed ?? path.closed,
+  };
+
   const pointsFor = (run) => {
     // A run of segments uses one more point than it has segments.
     const points = run.map((i) => path.points[i]);
@@ -175,7 +184,7 @@ export function splitPathBySelection(path, selected) {
 
     if (isSelected !== currentSelected && current.length > 0) {
       pieces.push({
-        path: createPath(pointsFor(current), { meta: path.meta }),
+        path: createPath(pointsFor(current), { meta }),
         selected: currentSelected,
       });
       current = [];
@@ -187,12 +196,67 @@ export function splitPathBySelection(path, selected) {
 
   if (current.length > 0) {
     pieces.push({
-      path: createPath(pointsFor(current), { meta: path.meta }),
+      path: createPath(pointsFor(current), { meta }),
       selected: currentSelected,
     });
   }
 
   return pieces;
+}
+
+/**
+ * Put cut pieces back together.
+ *
+ * Brushing part of a closed shape cuts its outline, and an outline in pieces
+ * has no inside — a fill worked out from the pieces would be nonsense. The
+ * pieces remember what they were cut from, so the fill can be taken from the
+ * whole shape while the drawing keeps its pieces on separate pens.
+ *
+ * Pieces of one shape stay next to each other in the paths array, in drawing
+ * order, which is what makes rejoining them a single pass.
+ */
+export function rejoinCuts(paths) {
+  const result = [];
+  let group = null;
+
+  const flush = () => {
+    if (!group) return;
+    result.push(group.parts.length > 1 ? joinParts(group) : group.parts[0]);
+    group = null;
+  };
+
+  for (const path of paths) {
+    const origin = path.meta?.cutFrom;
+
+    if (origin == null) {
+      flush();
+      result.push(path);
+    } else if (group && group.origin === origin) {
+      group.parts.push(path);
+    } else {
+      flush();
+      group = { origin, parts: [path] };
+    }
+  }
+
+  flush();
+  return result;
+}
+
+function joinParts({ origin, parts }) {
+  // Consecutive pieces share the point where they were cut; keep one copy.
+  const points = [...parts[0].points];
+  for (const part of parts.slice(1)) points.push(...part.points.slice(1));
+
+  const closed = parts[0].meta?.cutClosed === true;
+  // A closed path does not store its start point twice.
+  if (closed) points.pop();
+
+  const meta = { ...parts[0].meta };
+  delete meta.cutFrom;
+  delete meta.cutClosed;
+
+  return createPath(points, { closed, meta, id: origin });
 }
 
 /**
