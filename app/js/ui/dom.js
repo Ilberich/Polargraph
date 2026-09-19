@@ -28,18 +28,37 @@ export function el(tag, props = {}, children = []) {
   return node;
 }
 
-/** Elements that hold a caret and a soft keyboard. */
-const EDITABLE_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
+/**
+ * Input types that are not text entry.
+ *
+ * These commit the moment they are clicked and hold no half-finished value.
+ */
+const NON_TEXT_INPUT_TYPES = new Set([
+  'checkbox', 'radio', 'button', 'submit', 'reset', 'file', 'image', 'color', 'range',
+]);
 
 /**
- * Is this node one the user can type into?
+ * Is the user part-way through typing into this node?
  *
- * Used to avoid replacing an element mid-edit. Takes any object with a
- * `tagName`, so the rule can be tested without a DOM.
+ * Deliberately narrower than "is a form control". A rebuild only harms an
+ * element holding an uncommitted value and a caret: replacing a text field
+ * mid-edit loses the edit and closes the soft keyboard, whereas replacing a
+ * checkbox that was just clicked loses nothing.
+ *
+ * Getting this wrong in the permissive direction is worse than it sounds. A
+ * checkbox keeps focus after a click, so treating it as editable defers the
+ * rebuild indefinitely and the user's own click appears to do nothing.
+ *
+ * Takes any object with `tagName` and `type`, so the rule can be tested
+ * without a DOM.
  */
-export function isEditable(node) {
+export function isTextEntry(node) {
   if (!node) return false;
-  return EDITABLE_TAGS.has(node.tagName) || node.isContentEditable === true;
+  if (node.isContentEditable === true) return true;
+  if (node.tagName === 'TEXTAREA') return true;
+  if (node.tagName !== 'INPUT') return false;
+
+  return !NON_TEXT_INPUT_TYPES.has(String(node.type ?? 'text').toLowerCase());
 }
 
 export function clear(node) {
@@ -48,10 +67,11 @@ export function clear(node) {
 }
 
 /** A labelled numeric field. `onCommit` fires on change, not on every keystroke. */
-export function numberField({ label, value, min, max, step = 1, unit, onCommit }) {
+export function numberField({ label, value, min, max, step = 1, unit, id, onCommit }) {
   const input = el('input', {
     class: 'field__input',
     type: 'number',
+    ...(id ? { id } : {}),
     value: String(value),
     step: String(step),
     ...(min == null ? {} : { min: String(min) }),
@@ -71,10 +91,11 @@ export function numberField({ label, value, min, max, step = 1, unit, onCommit }
   ]);
 }
 
-export function checkboxField({ label, checked, onChange }) {
+export function checkboxField({ label, checked, id, onChange }) {
   const input = el('input', {
     class: 'checkbox__input',
     type: 'checkbox',
+    ...(id ? { id } : {}),
     checked,
     onchange: () => onChange(input.checked),
   });

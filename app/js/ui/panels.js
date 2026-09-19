@@ -19,11 +19,11 @@ function paperCard(state, actions) {
   return card('Paper', [
     el('div', { class: 'field-grid' }, [
       numberField({
-        label: 'Width', value: paper.widthMm, min: 1, unit: 'mm',
+        label: 'Width', value: paper.widthMm, min: 1, unit: 'mm', id: 'paper-width',
         onCommit: (v) => actions.setPaper({ widthMm: v }),
       }),
       numberField({
-        label: 'Height', value: paper.heightMm, min: 1, unit: 'mm',
+        label: 'Height', value: paper.heightMm, min: 1, unit: 'mm', id: 'paper-height',
         onCommit: (v) => actions.setPaper({ heightMm: v }),
       }),
     ]),
@@ -31,7 +31,7 @@ function paperCard(state, actions) {
       ['top', 'right', 'bottom', 'left'].map((side) =>
         numberField({
           label: side[0].toUpperCase() + side.slice(1),
-          value: paper.margins[side], min: 0, unit: 'mm',
+          value: paper.margins[side], min: 0, unit: 'mm', id: `paper-margin-${side}`,
           onCommit: (v) => actions.setPaper({ margins: { ...paper.margins, [side]: v } }),
         })
       )
@@ -89,19 +89,19 @@ function transformCard(state, actions) {
   return card('Transform', [
     el('div', { class: 'field-grid' }, [
       numberField({
-        label: 'X', value: Math.round(placement.x * 100) / 100, step: 1, unit: 'mm',
+        label: 'X', value: Math.round(placement.x * 100) / 100, step: 1, unit: 'mm', id: 'transform-x',
         onCommit: (v) => actions.update(placement.id, { x: v }),
       }),
       numberField({
-        label: 'Y', value: Math.round(placement.y * 100) / 100, step: 1, unit: 'mm',
+        label: 'Y', value: Math.round(placement.y * 100) / 100, step: 1, unit: 'mm', id: 'transform-y',
         onCommit: (v) => actions.update(placement.id, { y: v }),
       }),
       numberField({
-        label: 'Rotation', value: Math.round(placement.rotation * 10) / 10, step: 1, unit: '°',
+        label: 'Rotation', value: Math.round(placement.rotation * 10) / 10, step: 1, unit: '°', id: 'transform-rotation',
         onCommit: (v) => actions.update(placement.id, { rotation: v }),
       }),
       numberField({
-        label: 'Scale', value: Math.round(placement.scale * 1000) / 1000, step: 0.05, min: 0.01,
+        label: 'Scale', value: Math.round(placement.scale * 1000) / 1000, step: 0.05, min: 0.01, id: 'transform-scale',
         onCommit: (v) => actions.update(placement.id, { scale: v }),
       }),
     ]),
@@ -128,20 +128,20 @@ function viewCard(state, actions) {
   return card('View', [
     el('div', { class: 'stack' }, [
       checkboxField({
-        label: 'Snapping', checked: state.settings.snap.enabled,
+        label: 'Snapping', checked: state.settings.snap.enabled, id: 'view-snap',
         onChange: (v) => actions.setSnap({ enabled: v }),
       }),
       checkboxField({
-        label: 'Snap to grid', checked: state.settings.snap.grid,
+        label: 'Snap to grid', checked: state.settings.snap.grid, id: 'view-snap-grid',
         onChange: (v) => actions.setSnap({ grid: v }),
       }),
       checkboxField({
-        label: 'Show grid', checked: state.settings.showGrid,
+        label: 'Show grid', checked: state.settings.showGrid, id: 'view-show-grid',
         onChange: (v) => actions.setSettings({ showGrid: v }),
       }),
     ]),
     numberField({
-      label: 'Grid', value: state.settings.snap.gridMm, min: 1, unit: 'mm',
+      label: 'Grid', value: state.settings.snap.gridMm, min: 1, unit: 'mm', id: 'view-grid-mm',
       onCommit: (v) => actions.setSnap({ gridMm: v }),
     }),
     el('div', { class: 'button-row' }, [
@@ -209,22 +209,22 @@ function outputCard(state, actions) {
   return card('Output', [
     el('div', { class: 'field-grid' }, [
       numberField({
-        label: 'Feed', value: settings.feedRate, min: 1, step: 50, unit: 'mm/min',
+        label: 'Feed', value: settings.feedRate, min: 1, step: 50, unit: 'mm/min', id: 'output-feed',
         onCommit: (v) => actions.setSettings({ feedRate: v }),
       }),
       numberField({
-        label: 'Travel', value: settings.travelFeedRate, min: 1, step: 50, unit: 'mm/min',
+        label: 'Travel', value: settings.travelFeedRate, min: 1, step: 50, unit: 'mm/min', id: 'output-travel-feed',
         onCommit: (v) => actions.setSettings({ travelFeedRate: v }),
       }),
       numberField({
-        label: 'Acceleration', value: settings.acceleration, min: 1, step: 25, unit: 'mm/s²',
+        label: 'Acceleration', value: settings.acceleration, min: 1, step: 25, unit: 'mm/s²', id: 'output-acceleration',
         onCommit: (v) => actions.setSettings({ acceleration: v }),
       }),
     ]),
 
     el('div', { class: 'stack' }, [
       checkboxField({
-        label: 'Pen lift installed', checked: settings.penLift,
+        label: 'Pen lift installed', checked: settings.penLift, id: 'output-pen-lift',
         onChange: (v) => actions.setSettings({ penLift: v }),
       }),
       !settings.penLift &&
@@ -234,7 +234,7 @@ function outputCard(state, actions) {
 
     el('div', { class: 'stack' }, [
       checkboxField({
-        label: 'Optimize paths', checked: settings.optimize,
+        label: 'Optimize paths', checked: settings.optimize, id: 'output-optimize',
         onChange: (v) => actions.setSettings({ optimize: v }),
       }),
       settings.optimize && !settings.penLift &&

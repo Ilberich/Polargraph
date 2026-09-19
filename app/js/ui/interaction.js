@@ -178,6 +178,14 @@ export function attachInteraction(canvas, host) {
   const onPointerDown = (event) => {
     if (event.button !== 0 && event.button !== 1) return;
 
+    // preventDefault below suppresses the focus change a press would normally
+    // cause, so a field in the panel would keep focus while the user works on
+    // the canvas — and any panel update waiting on that blur would never run.
+    // Dropping focus explicitly is what the press would have done anyway.
+    if (document.activeElement && document.activeElement !== canvas) {
+      document.activeElement.blur?.();
+    }
+
     canvas.setPointerCapture(event.pointerId);
     gesture = beginGesture(event);
     event.preventDefault();

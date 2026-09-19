@@ -27,7 +27,7 @@ import { load, save, mergeSettings, defaultStorage } from './core/storage.js';
 import { render } from './ui/render.js';
 import { attachInteraction } from './ui/interaction.js';
 import { renderPanels, describePaper } from './ui/panels.js';
-import { downloadText, pickFiles, isEditable } from './ui/dom.js';
+import { downloadText, pickFiles, isTextEntry } from './ui/dom.js';
 
 const DEFAULT_SETTINGS = {
   feedRate: 1200,
@@ -116,17 +116,30 @@ function drawCanvas() {
  * which used to schedule a render, which rebuilt the panel out from under the
  * field being tapped.
  *
- * So a rebuild is deferred while an editable element inside the panel has
- * focus, and runs when focus leaves. Values in the panel are only stale during
- * an edit the user is about to commit anyway.
+ * So a rebuild is deferred while a text field inside the panel has focus, and
+ * runs when focus leaves. Values in the panel are only stale during an edit the
+ * user is about to commit anyway.
+ *
+ * Only text entry defers. A checkbox keeps focus after being clicked, so
+ * counting it here would defer the rebuild indefinitely and the click would
+ * appear to do nothing at all.
  */
 function drawPanels() {
-  if (panelHost.contains(document.activeElement) && isEditable(document.activeElement)) {
+  if (panelHost.contains(document.activeElement) && isTextEntry(document.activeElement)) {
     panelsDirty = true;
     return;
   }
 
+  // A rebuild replaces the control the user was on, which for a keyboard user
+  // means being thrown back to the start of the tab order every time they
+  // toggle something. Controls carry stable ids so the same one can be picked
+  // up again afterwards.
+  const focusedId =
+    panelHost.contains(document.activeElement) ? document.activeElement.id : null;
+
   renderPanels(panelHost, state, actions);
+
+  if (focusedId) document.getElementById(focusedId)?.focus();
 }
 
 /**
@@ -435,7 +448,7 @@ function main() {
   // reliable than trusting the default, and is a no-op on a desktop where the
   // field is already in view.
   panelHost.addEventListener('focusin', (event) => {
-    if (!isEditable(event.target)) return;
+    if (!isTextEntry(event.target)) return;
 
     setTimeout(() => {
       // The user may have moved on while the keyboard was animating.
