@@ -9,6 +9,7 @@
 import { el, clear, numberField, checkboxField, button, card } from './dom.js';
 import { marginBox, outsideMargins } from '../core/scene/scene.js';
 import { placementBounds, placementLength } from '../core/scene/placement.js';
+import { formatDuration } from '../core/gcode/estimate.js';
 
 const mm = (value) => `${Math.round(value * 10) / 10}`;
 
@@ -149,6 +150,55 @@ function viewCard(state, actions) {
   ]);
 }
 
+/**
+ * The estimate rows.
+ *
+ * Optimization runs on a debounce, so these can legitimately be a moment
+ * behind. Saying so is better than showing a stale number as though it were
+ * current.
+ */
+function estimateRows(state) {
+  const { state: status, report, estimate } = state.analysis;
+
+  if (status === 'empty') return [];
+
+  if (status !== 'ready' || !estimate) {
+    return [
+      el('dt', { class: 'spec__key' }, 'Time'),
+      el('dd', { class: 'spec__value spec__value--pending' }, 'calculating'),
+    ];
+  }
+
+  const rows = [
+    el('dt', { class: 'spec__key' }, 'Est. time'),
+    el('dd', { class: 'spec__value' }, formatDuration(estimate.totalSeconds)),
+    el('dt', { class: 'spec__key' }, 'Drawing'),
+    el('dd', { class: 'spec__value' }, formatDuration(estimate.drawSeconds)),
+    el('dt', { class: 'spec__key' }, 'Travel'),
+    el('dd', { class: 'spec__value' }, formatDuration(estimate.travelSeconds)),
+  ];
+
+  if (report && report.saved > 0.5) {
+    const percent = Math.round((report.saved / report.before) * 100);
+
+    rows.push(
+      el('dt', { class: 'spec__key' }, 'Travel cut'),
+      el('dd', { class: 'spec__value spec__value--good' },
+        `${mm(report.saved)} mm (${percent}%)`)
+    );
+  }
+
+  if (report && report.pathsAfter < report.pathsBefore) {
+    rows.push(
+      el('dt', { class: 'spec__key' }, 'Paths merged'),
+      el('dd', { class: 'spec__value' },
+        `${report.pathsBefore} → ${report.pathsAfter}`)
+    );
+  }
+
+  return rows;
+}
+
 function outputCard(state, actions) {
   const { settings } = state;
   const strays = outsideMargins(state.scene);
@@ -166,6 +216,10 @@ function outputCard(state, actions) {
         label: 'Travel', value: settings.travelFeedRate, min: 1, step: 50, unit: 'mm/min',
         onCommit: (v) => actions.setSettings({ travelFeedRate: v }),
       }),
+      numberField({
+        label: 'Acceleration', value: settings.acceleration, min: 1, step: 25, unit: 'mm/s²',
+        onCommit: (v) => actions.setSettings({ acceleration: v }),
+      }),
     ]),
 
     el('div', { class: 'stack' }, [
@@ -178,11 +232,23 @@ function outputCard(state, actions) {
           'Without a pen axis every travel move draws, so the plot is one continuous line.'),
     ]),
 
+    el('div', { class: 'stack' }, [
+      checkboxField({
+        label: 'Optimize paths', checked: settings.optimize,
+        onChange: (v) => actions.setSettings({ optimize: v }),
+      }),
+      settings.optimize && !settings.penLift &&
+        el('p', { class: 'hint' },
+          'Ordering strokes to cut travel matters most without a pen lift, ' +
+          'since every travel move draws.'),
+    ]),
+
     el('dl', { class: 'spec' }, [
       el('dt', { class: 'spec__key' }, 'Total length'),
       el('dd', { class: 'spec__value' }, `${mm(drawn)} mm`),
       el('dt', { class: 'spec__key' }, 'Objects'),
       el('dd', { class: 'spec__value' }, String(state.scene.placements.length)),
+      ...estimateRows(state),
     ]),
 
     strays.length > 0 &&

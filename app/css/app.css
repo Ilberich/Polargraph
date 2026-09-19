@@ -223,6 +223,15 @@
   font-variant-numeric: tabular-nums;
 }
 
+.spec__value--pending {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.spec__value--good {
+  color: var(--accent);
+}
+
 .phase {
   display: flex;
   align-items: baseline;

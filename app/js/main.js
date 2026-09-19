@@ -14,6 +14,8 @@ import { describeEnvironment, plotterUrl } from './core/env.js';
 import { importSvg } from './core/svg/import.js';
 import { gcodeToPaths } from './core/gcode/parser.js';
 import { writeGcode } from './core/gcode/writer.js';
+import { optimize } from './core/gcode/optimize.js';
+import { estimateGcode } from './core/gcode/estimate.js';
 import { createPath } from './core/geom/path.js';
 import {
   createScene, addPlacement, removePlacement, updatePlacement, setPaper,
@@ -32,6 +34,8 @@ const DEFAULT_SETTINGS = {
   travelFeedRate: 3000,
   penLift: false,
   travelZ: 5,
+  optimize: true,
+  acceleration: 200,
   showGrid: false,
   snap: { enabled: true, grid: false, gridMm: 10, paperEdges: true, paperCentre: true, margins: true, objects: true },
 };
@@ -45,7 +49,17 @@ const state = {
   guides: [],
   settings: { ...DEFAULT_SETTINGS },
   status: '',
+  /**
+   * The optimized job and its estimate.
+   *
+   * Recomputed off the back of a change rather than during render: optimizing
+   * is bounded at well under a second but still far too slow to run on every
+   * frame of a drag.
+   */
+  analysis: { state: 'empty', report: null, estimate: null },
 };
+
+let analysisTimer = null;
 
 let canvas;
 let panelHost;
@@ -115,6 +129,68 @@ function drawPanels() {
   renderPanels(panelHost, state, actions);
 }
 
+/**
+ * Turn the scene into the gcode that would actually be plotted.
+ *
+ * One function so the panel's figures and the exported file can never disagree
+ * about what optimization did.
+ */
+function buildJob() {
+  const paths = scenePaths(state.scene);
+  if (paths.length === 0) return null;
+
+  const { paths: ordered, report } = state.settings.optimize
+    ? optimize(paths)
+    : { paths, report: null };
+
+  const gcode = writeGcode(ordered, {
+    penLift: state.settings.penLift,
+    feedRate: state.settings.feedRate,
+    travelFeedRate: state.settings.travelFeedRate,
+    travelZ: state.settings.travelZ,
+  });
+
+  return { gcode, report, pathCount: ordered.length };
+}
+
+/**
+ * Recompute the estimate a short while after the last change.
+ *
+ * Debounced because a drag fires changes continuously and optimizing each
+ * intermediate position would be wasted work the user never sees.
+ */
+function scheduleAnalysis() {
+  if (analysisTimer !== null) clearTimeout(analysisTimer);
+
+  if (state.scene.placements.length === 0) {
+    setState({ analysis: { state: 'empty', report: null, estimate: null } });
+    return;
+  }
+
+  setState({ analysis: { ...state.analysis, state: 'pending' } });
+
+  analysisTimer = setTimeout(() => {
+    analysisTimer = null;
+
+    const job = buildJob();
+    if (!job) {
+      setState({ analysis: { state: 'empty', report: null, estimate: null } });
+      return;
+    }
+
+    setState({
+      analysis: {
+        state: 'ready',
+        report: job.report,
+        estimate: estimateGcode(job.gcode, {
+          acceleration: state.settings.acceleration,
+          maxSpeedMmMin: Math.max(state.settings.feedRate, state.settings.travelFeedRate),
+        }),
+      },
+    });
+  }, 250);
+}
+
 /** Persist the parts of the session worth restoring. */
 function persist() {
   save(
@@ -158,6 +234,7 @@ const actions = {
 
   update(id, changes) {
     setState({ scene: updatePlacement(state.scene, id, changes) });
+    scheduleAnalysis();
   },
 
   remove(id) {
@@ -165,6 +242,7 @@ const actions = {
       scene: removePlacement(state.scene, id),
       selectedId: state.selectedId === id ? null : state.selectedId,
     });
+    scheduleAnalysis();
   },
 
   reorder(id, delta) {
@@ -187,6 +265,7 @@ const actions = {
   setSettings(changes) {
     setState({ settings: { ...state.settings, ...changes } });
     persist();
+    scheduleAnalysis();
   },
 
   setSnap(changes) {
@@ -221,6 +300,7 @@ const actions = {
     }
 
     setState({ scene });
+    scheduleAnalysis();
     setStatus(
       [`Imported ${imported} file${imported === 1 ? '' : 's'}.`, ...new Set(warnings)].join(' ')
     );
@@ -248,26 +328,24 @@ const actions = {
     }
 
     setState({ scene });
+    scheduleAnalysis();
     setStatus(`Imported ${imported} gcode file${imported === 1 ? '' : 's'}.`);
   },
 
   exportGcode() {
-    const paths = scenePaths(state.scene);
+    const job = buildJob();
 
-    if (paths.length === 0) {
+    if (!job) {
       setStatus('Nothing to export — the paper is empty.');
       return;
     }
 
-    const gcode = writeGcode(paths, {
-      penLift: state.settings.penLift,
-      feedRate: state.settings.feedRate,
-      travelFeedRate: state.settings.travelFeedRate,
-      travelZ: state.settings.travelZ,
-    });
+    downloadText('polargraph.gcode', job.gcode, 'text/plain');
 
-    downloadText('polargraph.gcode', gcode, 'text/plain');
-    setStatus(`Exported ${paths.length} path${paths.length === 1 ? '' : 's'}.`);
+    const saved = job.report
+      ? ` Travel cut by ${Math.round(job.report.saved)}mm.`
+      : '';
+    setStatus(`Exported ${job.pathCount} path${job.pathCount === 1 ? '' : 's'}.${saved}`);
   },
 };
 
@@ -371,6 +449,7 @@ function main() {
   });
 
   fitView();
+  scheduleAnalysis();
 }
 
 main();
