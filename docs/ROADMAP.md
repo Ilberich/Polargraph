@@ -9,7 +9,7 @@ at all.** Phases 1–3 deliver that. Hardware work does not block it.
 
 ---
 
-## Phase 0 — Foundation
+## Phase 0 — Foundation — **complete**
 
 Repo layout, specs, deployment. No application code.
 
@@ -19,11 +19,11 @@ Repo layout, specs, deployment. No application code.
 - Test setup: Node's built-in `node:test` against the pure-logic modules. No
   framework, no dependencies, consistent with "keep it lean".
 
-**Done when:** an empty app shell is live on Pages and `npm test` runs.
+**Done:** the shell is live on Pages and `npm test` runs in CI.
 
 ---
 
-## Phase 1 — Geometry and gcode engine
+## Phase 1 — Geometry and gcode engine — **complete**
 
 Pure JavaScript, no DOM, fully unit tested. Everything hard lives here, where it
 can be tested without a browser or a machine.
@@ -35,8 +35,17 @@ can be tested without a browser or a machine.
 - Gcode writer, dialect-aware, honouring `penLift`
 - Gcode parser for import, preview and the scrubber
 
-**Done when:** an SVG round-trips to gcode and back to identical geometry, under
-test.
+**Done:** an SVG round-trips to gcode and back to identical geometry, under
+test. 185 tests.
+
+Two notes for later phases:
+
+- **SVG is parsed by our own reader, not `DOMParser`.** Node has no `DOMParser`,
+  so using it would mean the importer behaved one way in production and another
+  under test. `svg/xml.js` runs identically in both.
+- **Flattening tolerance is a paper measurement.** It is carried back through
+  the accumulated transform before curves are subdivided, so a shape scaled up
+  tenfold is not flattened ten times too coarsely.
 
 ---
 
