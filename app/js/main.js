@@ -56,7 +56,7 @@ const state = {
    * is bounded at well under a second but still far too slow to run on every
    * frame of a drag.
    */
-  analysis: { state: 'empty', report: null, estimate: null },
+  analysis: { state: 'empty', report: null, estimate: null, baseline: null },
 };
 
 let analysisTimer = null;
@@ -148,7 +148,7 @@ function drawPanels() {
  * One function so the panel's figures and the exported file can never disagree
  * about what optimization did.
  */
-function buildJob() {
+function buildJob({ withBaseline = false } = {}) {
   const paths = scenePaths(state.scene);
   if (paths.length === 0) return null;
 
@@ -156,14 +156,21 @@ function buildJob() {
     ? optimize(paths)
     : { paths, report: null };
 
-  const gcode = writeGcode(ordered, {
+  const options = {
     penLift: state.settings.penLift,
     feedRate: state.settings.feedRate,
     travelFeedRate: state.settings.travelFeedRate,
     travelZ: state.settings.travelZ,
-  });
+  };
 
-  return { gcode, report, pathCount: ordered.length };
+  // The same job in import order, for comparison. Distance saved is a fact
+  // about the route, but what a user actually wants to know is how much
+  // sooner the plot finishes — and that depends on feed rates and on how much
+  // of the saving was in slow drawing moves versus fast travel.
+  const baseline =
+    withBaseline && report ? writeGcode(paths, options) : null;
+
+  return { gcode: writeGcode(ordered, options), baseline, report, pathCount: ordered.length };
 }
 
 /**
@@ -176,7 +183,7 @@ function scheduleAnalysis() {
   if (analysisTimer !== null) clearTimeout(analysisTimer);
 
   if (state.scene.placements.length === 0) {
-    setState({ analysis: { state: 'empty', report: null, estimate: null } });
+    setState({ analysis: { state: 'empty', report: null, estimate: null, baseline: null } });
     return;
   }
 
@@ -185,20 +192,23 @@ function scheduleAnalysis() {
   analysisTimer = setTimeout(() => {
     analysisTimer = null;
 
-    const job = buildJob();
+    const job = buildJob({ withBaseline: true });
     if (!job) {
-      setState({ analysis: { state: 'empty', report: null, estimate: null } });
+      setState({ analysis: { state: 'empty', report: null, estimate: null, baseline: null } });
       return;
     }
+
+    const settings = {
+      acceleration: state.settings.acceleration,
+      maxSpeedMmMin: Math.max(state.settings.feedRate, state.settings.travelFeedRate),
+    };
 
     setState({
       analysis: {
         state: 'ready',
         report: job.report,
-        estimate: estimateGcode(job.gcode, {
-          acceleration: state.settings.acceleration,
-          maxSpeedMmMin: Math.max(state.settings.feedRate, state.settings.travelFeedRate),
-        }),
+        estimate: estimateGcode(job.gcode, settings),
+        baseline: job.baseline ? estimateGcode(job.baseline, settings) : null,
       },
     });
   }, 250);

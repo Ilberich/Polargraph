@@ -165,7 +165,7 @@ function viewCard(state, actions) {
  * current.
  */
 function estimateRows(state) {
-  const { state: status, report, estimate } = state.analysis;
+  const { state: status, report, estimate, baseline } = state.analysis;
 
   if (status === 'empty') return [];
 
@@ -184,6 +184,19 @@ function estimateRows(state) {
     el('dt', { class: 'spec__key' }, 'Travel'),
     el('dd', { class: 'spec__value' }, formatDuration(estimate.travelSeconds)),
   ];
+
+  // How much sooner the plot finishes: drawing and travel together, against
+  // the same job in import order.
+  if (baseline && baseline.totalSeconds - estimate.totalSeconds > 1) {
+    const savedSeconds = baseline.totalSeconds - estimate.totalSeconds;
+    const percent = Math.round((savedSeconds / baseline.totalSeconds) * 100);
+
+    rows.push(
+      el('dt', { class: 'spec__key' }, 'Time saved'),
+      el('dd', { class: 'spec__value spec__value--good' },
+        `${formatDuration(savedSeconds)} (${percent}%)`)
+    );
+  }
 
   if (report && report.saved > 0.5) {
     const percent = Math.round((report.saved / report.before) * 100);
