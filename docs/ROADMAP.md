@@ -128,6 +128,20 @@ The features that make output good rather than merely correct.
   - Brush granularity is a whole segment. Curves are flattened finely so the
     brush is fine on them; a long straight run is one segment and is taken
     whole.
+- **Re-flattening:** done. Curves are flattened at import against a tolerance
+  in millimetres on paper, but the size a shape will be plotted at is not known
+  then — fitting an object to the margins routinely scales it ten or twenty
+  times, and the facets grow with it until a circle plots as a polygon. Each
+  path now remembers the curve it came from and is flattened again for the size
+  it is drawn at, keeping its id so layer membership and fills survive.
+  - Scale is rounded up to a power of two, so a drag re-flattens a handful of
+    times rather than every frame, and facets are never worse than twice the
+    tolerance asked for.
+  - Flattening stops at half a motor step. Below that the machine cannot tell
+    one point from the next, so the extra vertices are pure file size.
+  - A stroke cut by the paint tool has no curve left to flatten from and keeps
+    the flattening it had. Its pieces are polylines, and re-flattening would
+    move the vertices the selection was cut at.
 - **Scrubber:** playback head rendering moves in real time.
 - **Time estimate:** trapezoidal velocity model over path length, feed rate and
   acceleration; live update.

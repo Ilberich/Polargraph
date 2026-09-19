@@ -171,7 +171,9 @@ export function importSvg(source, { toleranceMm = DEFAULT_TOLERANCE_MM } = {}) {
       const scale = meanScale(matrix);
       const localTolerance = scale > 0 ? toleranceMm / scale : toleranceMm;
 
-      for (const sub of pathDataToPolylines(d, localTolerance)) {
+      const subs = pathDataToPolylines(d, localTolerance);
+
+      subs.forEach((sub, index) => {
         const path = transformPath(
           createPath(sub.points, {
             closed: sub.closed,
@@ -180,13 +182,16 @@ export function importSvg(source, { toleranceMm = DEFAULT_TOLERANCE_MM } = {}) {
               id: child.attrs.id,
               // `none` is the only value that means "no inside".
               filled: fill !== 'none',
+              // What this path was flattened from, so it can be flattened
+              // again once the size it will be plotted at is known.
+              curve: { d, index, matrix },
             },
           }),
           matrix
         );
 
         if (!isDegenerate(path)) paths.push(path);
-      }
+      });
     }
   };
 

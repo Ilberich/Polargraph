@@ -15,6 +15,8 @@ import { compose, translation, scaling, rotation as rotate, apply } from '../geo
 import { transformPath, boundsOf, pathBounds } from '../geom/path.js';
 import { hatchFill, isFillable, isInside, DEFAULTS as HATCH_DEFAULTS } from '../geom/hatch.js';
 import { rejoinCuts } from './select.js';
+import { reflatten } from '../svg/reflatten.js';
+import { DEFAULT_TOLERANCE_MM } from '../svg/import.js';
 
 /**
  * Hatch settings a placement starts with.
@@ -36,6 +38,14 @@ export const DEFAULT_HATCH = { ...HATCH_DEFAULTS };
  * with it.
  */
 const hatchCache = new WeakMap();
+
+/**
+ * Paths flattened for the size the object is drawn at, keyed by source paths.
+ *
+ * Same reasoning as the hatch cache: the work is far too slow to redo on every
+ * frame of a drag, and keying on the source paths means it survives moving.
+ */
+const flattenCache = new WeakMap();
 
 let nextId = 1;
 
@@ -103,6 +113,29 @@ export function createPlacement({
 }
 
 /**
+ * The placement's paths, flattened for the size it is drawn at.
+ *
+ * Everything that reads geometry goes through here rather than through
+ * `placement.paths` directly, so the preview, the fill and the exported gcode
+ * all agree about how smooth a curve is.
+ */
+export function scaledPaths(placement) {
+  const scale = Math.abs(placement.scale) || 1;
+
+  let cached = flattenCache.get(placement.paths);
+  if (!cached) {
+    cached = new Map();
+    flattenCache.set(placement.paths, cached);
+  }
+
+  if (!cached.has(scale)) {
+    cached.set(scale, reflatten(placement.paths, scale, DEFAULT_TOLERANCE_MM));
+  }
+
+  return cached.get(scale);
+}
+
+/**
  * Does this placement contain anything a fill could go inside?
  *
  * Measured against the rejoined outlines, so painting part of a shape onto
@@ -119,7 +152,7 @@ export function canHatch(placement) {
  * does not make it look as though the shape stopped being closed.
  */
 export function fillableShapes(placement) {
-  return rejoinCuts(placement.paths).filter(isFillable);
+  return rejoinCuts(scaledPaths(placement)).filter(isFillable);
 }
 
 /** Is `inner` nested within `outer`? */
@@ -200,8 +233,10 @@ function fillGroups(placement) {
  * area does take longer to draw.
  */
 export function placementPaths(placement) {
+  const paths = scaledPaths(placement);
   const fills = placement.fills ?? {};
-  if (Object.keys(fills).length === 0) return placement.paths;
+
+  if (Object.keys(fills).length === 0) return paths;
 
   const { angleDeg, cross, rule, boustrophedon } = placement.hatch;
 
@@ -209,7 +244,7 @@ export function placementPaths(placement) {
   const scale = Math.abs(placement.scale) || 1;
   const spacingMm = placement.hatch.spacingMm / scale;
 
-  const key = `${spacingMm}|${angleDeg}|${cross}|${rule}|${boustrophedon}|${
+  const key = `${scale}|${spacingMm}|${angleDeg}|${cross}|${rule}|${boustrophedon}|${
     Object.entries(fills).map(([id, layerId]) => `${id}:${layerId ?? ''}`).sort().join(',')
   }`;
 
@@ -230,7 +265,7 @@ export function placementPaths(placement) {
         meta: { ...line.meta, fillLayerId: group.layerId },
       })));
 
-    cached.set(key, [...placement.paths, ...lines]);
+    cached.set(key, [...paths, ...lines]);
   }
 
   return cached.get(key);
