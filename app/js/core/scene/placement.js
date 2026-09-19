@@ -89,16 +89,28 @@ export function canHatch(placement) {
 /**
  * The placement's own geometry: its source paths plus any hatch fill.
  *
- * Hatch is computed in source coordinates, so it scales and rotates with the
- * shape rather than being recomputed against the paper. That also means the
- * spacing the user sets is spacing on the original drawing — at scale 2 the
- * lines end up twice as far apart on paper, which is the same thing that
- * happens to every other line in the shape.
+ * Hatch spacing is given in millimetres **on paper**, not in the source
+ * drawing's units. It is the one fill parameter chosen against a physical
+ * object — the pen — so the number a user types is the gap they expect to
+ * measure on the sheet. An object scaled 3.5x would otherwise turn a stated
+ * 0.2 mm into 0.7 mm, which is both surprising and impossible to reason about
+ * against a pen width.
+ *
+ * The fill is still generated in source coordinates so it rotates with the
+ * shape and caches across moves; the spacing is simply divided back through
+ * the scale first. A consequence worth knowing: scaling a filled object up
+ * adds lines rather than spreading them, which is honest — a larger filled
+ * area does take longer to draw.
  */
 export function placementPaths(placement) {
   if (!placement.hatch?.enabled) return placement.paths;
 
-  const { spacingMm, angleDeg, cross, rule, boustrophedon } = placement.hatch;
+  const { angleDeg, cross, rule, boustrophedon } = placement.hatch;
+
+  // Guard a zero or negative scale, which would make the spacing meaningless.
+  const scale = Math.abs(placement.scale) || 1;
+  const spacingMm = placement.hatch.spacingMm / scale;
+
   const key = `${spacingMm}|${angleDeg}|${cross}|${rule}|${boustrophedon}`;
 
   let cached = hatchCache.get(placement.paths);
@@ -111,7 +123,10 @@ export function placementPaths(placement) {
   // every render frame otherwise, which for a dense fill is a copy of
   // thousands of entries per frame for no gain.
   if (!cached.has(key)) {
-    cached.set(key, [...placement.paths, ...hatchFill(placement.paths, placement.hatch)]);
+    cached.set(key, [
+      ...placement.paths,
+      ...hatchFill(placement.paths, { ...placement.hatch, spacingMm }),
+    ]);
   }
 
   return cached.get(key);

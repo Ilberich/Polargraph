@@ -179,9 +179,40 @@ function fillCard(state, actions) {
       }),
     ]),
 
-    hatch.enabled && el('p', { class: 'hint' },
-      'Spacing is measured on the original drawing, so it scales with the ' +
-      'object. Below the pen width the fill reads as solid.'),
+    hatch.enabled && spacingAdvice(placement, state.settings),
+  ]);
+}
+
+/**
+ * Whether the chosen spacing is worth the time it costs.
+ *
+ * Below the pen's own width the strokes overlap, so the paper is inked more
+ * than once and the extra passes buy nothing visible. At a tenth of the pen
+ * width that is ten times the plotting time for the same black. Worth saying
+ * before someone starts a two-hour plot, not after.
+ *
+ * Spacing is in source units and the object may be scaled, so the comparison
+ * has to be made in millimetres on paper.
+ */
+function spacingAdvice(placement, settings) {
+  const penWidth = settings.penWidthMm;
+  const onPaper = placement.hatch.spacingMm;
+
+  if (!(penWidth > 0) || onPaper >= penWidth) {
+    return el('p', { class: 'hint' },
+      `Lines land ${mm(onPaper)} mm apart on paper, whatever the object is ` +
+      `scaled to. Your pen draws ${mm(penWidth)} mm wide.`);
+  }
+
+  const overlap = penWidth / onPaper;
+
+  return el('div', { class: 'notice notice--warn' }, [
+    el('strong', { class: 'notice__title' }, 'Closer than the pen is wide'),
+    el('span', {},
+      `Lines land ${mm(onPaper)} mm apart but the pen draws ${mm(penWidth)} mm wide, ` +
+      `so each patch of paper is inked about ${overlap.toFixed(1)}× over. ` +
+      `Spacing them ${mm(penWidth)} mm apart would look the same and take ` +
+      `roughly ${overlap.toFixed(1)}× less time.`),
   ]);
 }
 

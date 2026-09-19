@@ -194,6 +194,37 @@ test('hatch transforms with the shape', () => {
   }
 });
 
+test('hatch spacing is measured on paper, not in source units', () => {
+  // A stated 0.5mm must be 0.5mm on the sheet whatever the object is scaled
+  // to — it is chosen against a physical pen.
+  const plain = createPlacement({
+    paths: [rect()],
+    hatch: { enabled: true, spacingMm: 2, angleDeg: 0 },
+  });
+  const scaled = createPlacement({
+    paths: [rect()],
+    hatch: { enabled: true, spacingMm: 2, angleDeg: 0 },
+    scale: 4,
+  });
+
+  // Four times the area across, so four times the lines at the same paper gap.
+  const lines = (p) => placementPaths(p).length - p.paths.length;
+  assert.ok(
+    lines(scaled) >= lines(plain) * 3.5,
+    `expected about 4x the lines, got ${lines(scaled)} vs ${lines(plain)}`
+  );
+});
+
+test('a zero scale does not make spacing meaningless', () => {
+  const placement = createPlacement({
+    paths: [rect()],
+    hatch: { enabled: true, spacingMm: 2, angleDeg: 0 },
+    scale: 0,
+  });
+
+  assert.doesNotThrow(() => placementPaths(placement));
+});
+
 test('hatch is computed once and reused across moves', () => {
   // Moving a placement makes a new object but keeps the same source paths, so
   // the fill must not be recomputed on every frame of a drag.
