@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   createPlacement, placementMatrix, placementBounds, worldPaths, hitTest,
-  placementLength, resetIds,
+  placementLength, resetIds, placementPaths, canHatch,
 } from './placement.js';
 import { createPath } from '../geom/path.js';
 import { apply } from '../geom/matrix.js';
@@ -137,4 +137,85 @@ test('ids are unique', () => {
   const b = createPlacement({ paths: [] });
 
   assert.notEqual(a.id, b.id);
+});
+
+// ------------------------------------------------------------ hatch fill --
+
+test('a placement starts with hatch off', () => {
+  const placement = createPlacement({ paths: [rect()] });
+
+  assert.equal(placement.hatch.enabled, false);
+  assert.deepEqual(placementPaths(placement), placement.paths);
+});
+
+test('closed shapes can be hatched, open ones cannot', () => {
+  assert.equal(canHatch(createPlacement({ paths: [rect()] })), true);
+  assert.equal(
+    canHatch(createPlacement({ paths: [createPath([{ x: 0, y: 0 }, { x: 5, y: 5 }])] })),
+    false
+  );
+});
+
+test('enabling hatch adds fill lines to the placement', () => {
+  const placement = createPlacement({
+    paths: [rect()],
+    hatch: { enabled: true, spacingMm: 2, angleDeg: 0 },
+  });
+
+  const paths = placementPaths(placement);
+  assert.ok(paths.length > 1, 'the outline plus fill lines');
+  assert.equal(paths[0], placement.paths[0], 'the outline is still first');
+});
+
+test('hatch is included in the placement length', () => {
+  const plain = createPlacement({ paths: [rect()] });
+  const filled = createPlacement({
+    paths: [rect()],
+    hatch: { enabled: true, spacingMm: 2, angleDeg: 0 },
+  });
+
+  assert.ok(placementLength(filled) > placementLength(plain));
+});
+
+test('hatch transforms with the shape', () => {
+  const placement = createPlacement({
+    paths: [rect()],
+    hatch: { enabled: true, spacingMm: 5, angleDeg: 0 },
+    scale: 2,
+  });
+
+  // Every hatch line must still land inside the scaled outline.
+  const b = placementBounds(placement);
+  for (const path of worldPaths(placement)) {
+    for (const p of path.points) {
+      assert.ok(p.x >= b.minX - 1e-6 && p.x <= b.maxX + 1e-6);
+      assert.ok(p.y >= b.minY - 1e-6 && p.y <= b.maxY + 1e-6);
+    }
+  }
+});
+
+test('hatch is computed once and reused across moves', () => {
+  // Moving a placement makes a new object but keeps the same source paths, so
+  // the fill must not be recomputed on every frame of a drag.
+  const placement = createPlacement({
+    paths: [rect()],
+    hatch: { enabled: true, spacingMm: 1, angleDeg: 0 },
+  });
+
+  const before = placementPaths(placement);
+  const moved = { ...placement, x: placement.x + 50 };
+
+  assert.equal(placementPaths(moved), before, 'same array, not merely equal');
+});
+
+test('changing hatch settings recomputes', () => {
+  const placement = createPlacement({
+    paths: [rect()],
+    hatch: { enabled: true, spacingMm: 5, angleDeg: 0 },
+  });
+
+  const coarse = placementPaths(placement);
+  const fine = placementPaths({ ...placement, hatch: { ...placement.hatch, spacingMm: 1 } });
+
+  assert.ok(fine.length > coarse.length);
 });

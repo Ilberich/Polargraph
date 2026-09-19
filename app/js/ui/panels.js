@@ -8,7 +8,7 @@
 
 import { el, clear, numberField, checkboxField, button, card } from './dom.js';
 import { marginBox, outsideMargins } from '../core/scene/scene.js';
-import { placementBounds, placementLength } from '../core/scene/placement.js';
+import { placementBounds, placementLength, canHatch } from '../core/scene/placement.js';
 import { formatDuration } from '../core/gcode/estimate.js';
 import { BUILD } from '../build.js';
 
@@ -122,6 +122,66 @@ function transformCard(state, actions) {
       button({ label: 'Bring forward', onClick: () => actions.reorder(placement.id, 1) }),
       button({ label: 'Send back', onClick: () => actions.reorder(placement.id, -1) }),
     ]),
+  ]);
+}
+
+/**
+ * Hatch fill for the selected object.
+ *
+ * Only offered when there is something closed to fill — an open path has no
+ * inside, and a control that silently does nothing is worse than one that is
+ * not there.
+ */
+function fillCard(state, actions) {
+  const placement = state.scene.placements.find((p) => p.id === state.selectedId);
+  if (!placement) return null;
+
+  if (!canHatch(placement)) {
+    return card('Fill', el('p', { class: 'empty' },
+      'This object has no closed shapes, so there is nothing to fill.'));
+  }
+
+  const { hatch } = placement;
+  const update = (changes) =>
+    actions.update(placement.id, { hatch: { ...hatch, ...changes } });
+
+  return card('Fill', [
+    el('div', { class: 'stack' }, [
+      checkboxField({
+        label: 'Hatch fill', checked: hatch.enabled, id: 'fill-enabled',
+        onChange: (v) => update({ enabled: v }),
+      }),
+      hatch.enabled && checkboxField({
+        label: 'Crosshatch', checked: hatch.cross, id: 'fill-cross',
+        onChange: (v) => update({ cross: v }),
+      }),
+      // Two overlapping shapes can either knock a hole in each other or merge
+      // into one solid region. Both are wanted often enough that guessing is
+      // worse than asking — a ring needs its middle left open, two overlapping
+      // blobs usually do not.
+      hatch.enabled && checkboxField({
+        label: 'Overlaps make holes', checked: hatch.rule === 'evenodd',
+        id: 'fill-holes',
+        onChange: (v) => update({ rule: v ? 'evenodd' : 'nonzero' }),
+      }),
+    ]),
+
+    hatch.enabled && el('div', { class: 'field-grid' }, [
+      numberField({
+        label: 'Spacing', value: hatch.spacingMm, min: 0.1, step: 0.5, unit: 'mm',
+        id: 'fill-spacing',
+        onCommit: (v) => update({ spacingMm: v }),
+      }),
+      numberField({
+        label: 'Angle', value: hatch.angleDeg, step: 5, unit: '°',
+        id: 'fill-angle',
+        onCommit: (v) => update({ angleDeg: v }),
+      }),
+    ]),
+
+    hatch.enabled && el('p', { class: 'hint' },
+      'Spacing is measured on the original drawing, so it scales with the ' +
+      'object. Below the pen width the fill reads as solid.'),
   ]);
 }
 
@@ -296,6 +356,7 @@ export function renderPanels(container, state, actions) {
   const cards = [
     objectsCard(state, actions),
     transformCard(state, actions),
+    fillCard(state, actions),
     paperCard(state, actions),
     viewCard(state, actions),
     outputCard(state, actions),

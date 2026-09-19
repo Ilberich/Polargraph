@@ -12,7 +12,7 @@
  * so the theme stays defined in exactly one place.
  */
 
-import { placementMatrix, placementBounds } from '../core/scene/placement.js';
+import { placementMatrix, placementBounds, placementPaths } from '../core/scene/placement.js';
 import { marginBox } from '../core/scene/scene.js';
 import { toScreen } from '../core/view/viewport.js';
 
@@ -129,7 +129,7 @@ function drawMargins(ctx, scene, viewport, theme) {
 function tracePaths(ctx, placement) {
   ctx.beginPath();
 
-  for (const path of placement.paths) {
+  for (const path of placementPaths(placement)) {
     const [first, ...rest] = path.points;
     if (!first) continue;
 

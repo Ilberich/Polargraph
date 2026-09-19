@@ -13,6 +13,22 @@
 
 import { compose, translation, scaling, rotation as rotate, apply } from '../geom/matrix.js';
 import { transformPath, boundsOf } from '../geom/path.js';
+import { hatchFill, DEFAULTS as HATCH_DEFAULTS } from '../geom/hatch.js';
+
+/** Hatch settings a placement starts with, until the user turns it on. */
+export const DEFAULT_HATCH = { enabled: false, ...HATCH_DEFAULTS };
+
+/**
+ * Computed hatch lines, keyed by the source paths and the settings used.
+ *
+ * Hatching a dense shape is far too slow to redo on every frame of a drag.
+ * Keying on the paths array rather than the placement means the cache survives
+ * moving and scaling — those produce a new placement object but reuse the same
+ * source geometry — while any change to the hatch settings misses and
+ * recomputes. A WeakMap so an object dropped from the scene takes its cache
+ * with it.
+ */
+const hatchCache = new WeakMap();
 
 let nextId = 1;
 
@@ -36,6 +52,7 @@ export function createPlacement({
   rotation = 0,
   scale = 1,
   visible = true,
+  hatch = DEFAULT_HATCH,
   id = null,
 } = {}) {
   const sourceBounds = boundsOf(paths) ?? {
@@ -60,7 +77,44 @@ export function createPlacement({
     rotation,
     scale,
     visible,
+    hatch: { ...DEFAULT_HATCH, ...hatch },
   };
+}
+
+/** Does this placement contain anything a fill could go inside? */
+export function canHatch(placement) {
+  return placement.paths.some((path) => path.closed && path.points.length >= 3);
+}
+
+/**
+ * The placement's own geometry: its source paths plus any hatch fill.
+ *
+ * Hatch is computed in source coordinates, so it scales and rotates with the
+ * shape rather than being recomputed against the paper. That also means the
+ * spacing the user sets is spacing on the original drawing — at scale 2 the
+ * lines end up twice as far apart on paper, which is the same thing that
+ * happens to every other line in the shape.
+ */
+export function placementPaths(placement) {
+  if (!placement.hatch?.enabled) return placement.paths;
+
+  const { spacingMm, angleDeg, cross, rule, boustrophedon } = placement.hatch;
+  const key = `${spacingMm}|${angleDeg}|${cross}|${rule}|${boustrophedon}`;
+
+  let cached = hatchCache.get(placement.paths);
+  if (!cached) {
+    cached = new Map();
+    hatchCache.set(placement.paths, cached);
+  }
+
+  // The combined array is cached too, not just the fill. It is rebuilt on
+  // every render frame otherwise, which for a dense fill is a copy of
+  // thousands of entries per frame for no gain.
+  if (!cached.has(key)) {
+    cached.set(key, [...placement.paths, ...hatchFill(placement.paths, placement.hatch)]);
+  }
+
+  return cached.get(key);
 }
 
 /**
@@ -82,7 +136,7 @@ export function placementMatrix(placement) {
 /** Source paths transformed onto the paper. Used for export, not for drawing. */
 export function worldPaths(placement) {
   const matrix = placementMatrix(placement);
-  return placement.paths.map((path) => transformPath(path, matrix));
+  return placementPaths(placement).map((path) => transformPath(path, matrix));
 }
 
 /**
@@ -137,7 +191,7 @@ export function hitTest(placement, point, slack = 0) {
 export function placementLength(placement) {
   let total = 0;
 
-  for (const path of placement.paths) {
+  for (const path of placementPaths(placement)) {
     for (let i = 1; i < path.points.length; i++) {
       const a = path.points[i - 1];
       const b = path.points[i];
