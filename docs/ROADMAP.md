@@ -89,9 +89,19 @@ The features that make output good rather than merely correct.
   closed is rarely what a drawing wants. Clicking inside a shape is what picks
   it, and the smallest containing shape wins, so the hole of a ring can be
   chosen separately from the ring.
-  - A fill carries its own layer rather than its outline's. Shapes filled onto
-    the same layer are hatched as one group, so the fill rule still means
-    something across them: one fill, one colour, holes and all.
+  - A fill is the shape that was clicked plus everything nested inside it —
+    what SVG calls a compound path. A silhouette with holes arrives as separate
+    outlines, one per subpath, so a fill that took only the shape clicked would
+    cover the holes it is meant to leave open. Nesting goes as deep as the
+    drawing does: an island inside a hole is filled again.
+  - Holes are not offered as shapes to fill, and "Fill all" fills only the
+    outermost shapes. A hole can still be filled in its own right by clicking
+    inside it, which makes it a separate fill with its own layer.
+  - Every fill is its own group. Two fills that overlap draw over each other
+    rather than cancelling out — the fill rule is for what is nested inside one
+    fill, not for what two separate fills do to each other.
+  - A fill carries its own layer rather than its outline's: filling a blue
+    outline with red hatching is the ordinary case.
 - **Layers:** done. A layer is a pen. Membership is held against stable path
   ids rather than positions, so it survives the optimizer reordering,
   reversing and merging paths. Optimization runs *within* a layer and never

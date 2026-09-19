@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 
 import {
   createPlacement, placementMatrix, placementBounds, worldPaths, hitTest,
-  placementLength, resetIds, placementPaths, canHatch, fillableShapes,
+  placementLength, resetIds, placementPaths, canHatch, fillableShapes, topLevelShapes,
 } from './placement.js';
 import { createPath } from '../geom/path.js';
 import { apply } from '../geom/matrix.js';
+import { isInside } from '../geom/hatch.js';
 
 const close = (a, b, tol = 1e-9) =>
   assert.ok(Math.abs(a - b) < tol, `${a} !== ${b}`);
@@ -293,4 +294,113 @@ test('choosing a different shape recomputes', () => {
   const large = placementPaths({ ...placement, fills: { [b.id]: null } });
 
   assert.ok(large.length > small.length);
+});
+
+// --------------------------------------------------------- shapes with holes --
+
+/** A square outline, centred on the origin. */
+const box = (half) => createPath([
+  { x: -half, y: -half }, { x: half, y: -half }, { x: half, y: half }, { x: -half, y: half },
+], { closed: true });
+
+test('filling a shape leaves the shapes nested inside it open', () => {
+  // A silhouette with a hole arrives as two outlines, one per subpath. Filling
+  // the outer one has to leave the inner one alone or the hole disappears.
+  const outer = box(50);
+  const hole = box(20);
+  const placement = createPlacement({
+    paths: [outer, hole],
+    hatch: { spacingMm: 2, angleDeg: 0 },
+    fills: { [outer.id]: null },
+  });
+
+  const lines = placementPaths(placement).slice(2);
+  assert.ok(lines.length > 0, 'the shape is filled');
+
+  // A hatch line may end *on* the hole's edge; what it must not do is cross it.
+  for (const line of lines) {
+    for (let i = 1; i < line.points.length; i++) {
+      const a = line.points[i - 1];
+      const b = line.points[i];
+      const middle = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+
+      assert.ok(!isInside([hole], middle), `hatch crosses the hole at ${middle.x},${middle.y}`);
+    }
+
+    for (const point of line.points) {
+      assert.ok(!isInside([box(19)], point), `hatch at ${point.x},${point.y} is in the hole`);
+    }
+  }
+});
+
+test('the hole can be filled in its own right', () => {
+  const outer = box(50);
+  const hole = box(20);
+  const placement = createPlacement({
+    paths: [outer, hole],
+    hatch: { spacingMm: 2, angleDeg: 0 },
+    fills: { [outer.id]: null },
+  });
+
+  const open = placementPaths(placement).length;
+  const both = placementPaths({
+    ...placement,
+    fills: { [outer.id]: null, [hole.id]: 'l2' },
+  });
+
+  assert.ok(both.length > open, 'filling the hole adds lines back inside it');
+  assert.ok(
+    both.slice(open).some((line) => line.meta.fillLayerId === 'l2'),
+    'and they are on the layer the hole was filled onto'
+  );
+});
+
+test('an island inside a hole is filled again', () => {
+  const outer = box(50);
+  const hole = box(30);
+  const island = box(10);
+  const placement = createPlacement({
+    paths: [outer, hole, island],
+    hatch: { spacingMm: 2, angleDeg: 0 },
+    fills: { [outer.id]: null },
+  });
+
+  const centre = { x: 0, y: 0 };
+  const lines = placementPaths(placement).slice(3);
+
+  assert.ok(
+    lines.some((line) => line.points.some((p) => isInside([island], p))),
+    'the island is filled, though it sits in a hole'
+  );
+  assert.ok(isInside([island], centre));
+});
+
+test('two separate fills draw over each other rather than cancelling', () => {
+  // The fill rule is for what is nested inside one fill, not for what two
+  // fills do to each other: a bucket tool does not rub out what it lands on.
+  const left = createPath([
+    { x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 40 }, { x: 0, y: 40 },
+  ], { closed: true });
+  const right = createPath([
+    { x: 20, y: 0 }, { x: 60, y: 0 }, { x: 60, y: 40 }, { x: 20, y: 40 },
+  ], { closed: true });
+
+  const placement = createPlacement({
+    paths: [left, right],
+    hatch: { spacingMm: 4, angleDeg: 0 },
+  });
+
+  const one = placementPaths({ ...placement, fills: { [left.id]: null } }).length;
+  const two = placementPaths({ ...placement, fills: { [left.id]: null, [right.id]: null } }).length;
+
+  assert.ok(two > one, 'the second fill adds lines, it does not remove them');
+});
+
+test('holes are not offered as shapes to fill', () => {
+  const outer = box(50);
+  const hole = box(20);
+  const placement = createPlacement({ paths: [outer, hole] });
+
+  assert.equal(fillableShapes(placement).length, 2);
+  assert.deepEqual(topLevelShapes(placement).map((s) => s.id), [outer.id]);
 });

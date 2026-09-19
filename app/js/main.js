@@ -23,7 +23,9 @@ import {
   addLayer, updateLayer, removeLayer, reorderLayer, scenePathsByLayer,
 } from './core/scene/scene.js';
 import { createLayer, assignPaths } from './core/scene/layers.js';
-import { createPlacement, placementMatrix, fillableShapes } from './core/scene/placement.js';
+import {
+  createPlacement, placementMatrix, fillableShapes, topLevelShapes,
+} from './core/scene/placement.js';
 import {
   segmentsWithin, pickPath, pickShape, assignSelection, segmentCount,
 } from './core/scene/select.js';
@@ -589,13 +591,14 @@ const actions = {
     commitPaint();
   },
 
+  /** Fill every shape, leaving the holes in them open. */
   fillAll() {
     const placement = toolPlacement();
     if (!placement) return;
 
     const layerId = state.selectedLayerId ?? null;
     const fills = Object.fromEntries(
-      fillableShapes(placement).map((shape) => [shape.id, layerId])
+      topLevelShapes(placement).map((shape) => [shape.id, layerId])
     );
 
     setState({ scene: updatePlacement(state.scene, placement.id, { fills }) });

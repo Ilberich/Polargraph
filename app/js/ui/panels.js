@@ -8,7 +8,9 @@
 
 import { el, clear, numberField, checkboxField, button, card, tabbedCard } from './dom.js';
 import { marginBox, outsideMargins } from '../core/scene/scene.js';
-import { placementBounds, placementLength, canHatch, fillableShapes } from '../core/scene/placement.js';
+import {
+  placementBounds, placementLength, canHatch, topLevelShapes,
+} from '../core/scene/placement.js';
 import { formatDuration } from '../core/gcode/estimate.js';
 import { el as element } from './dom.js';
 import { BUILD } from '../build.js';
@@ -346,7 +348,7 @@ function fillPane(state, actions) {
   const update = (changes) =>
     actions.update(placement.id, { hatch: { ...hatch, ...changes } });
 
-  const shapes = fillableShapes(placement).length;
+  const shapes = topLevelShapes(placement).length;
   const filled = Object.keys(placement.fills ?? {}).length;
 
   return [
@@ -360,7 +362,9 @@ function fillPane(state, actions) {
       onChange: (v) => actions.setFillErase(v),
     }),
 
-    el('p', { class: 'hint' }, 'Hold Alt, or turn on Erase, to take a fill back.'),
+    el('p', { class: 'hint' },
+      'Holes are left open. Click inside one to fill it in its own colour, or ' +
+      'hold Alt \u2014 or turn on Erase \u2014 to take a fill back.'),
 
     el('div', { class: 'field-grid' }, [
       numberField({
@@ -380,11 +384,12 @@ function fillPane(state, actions) {
         label: 'Crosshatch', checked: hatch.cross, id: 'fill-cross',
         onChange: (v) => update({ cross: v }),
       }),
-      // Two overlapping shapes filled in the same colour can either knock a
-      // hole in each other or merge into one solid region. Both are wanted
-      // often enough that guessing is worse than asking.
+      // A shape nested inside a filled one can either be left open or filled
+      // over. Even-odd leaves it open, which is what a silhouette with holes
+      // wants; nonzero follows the winding direction, which is SVG's own
+      // default and keeps overlapping subpaths solid.
       checkboxField({
-        label: 'Overlaps make holes', checked: hatch.rule === 'evenodd',
+        label: 'Inner shapes are holes', checked: hatch.rule === 'evenodd',
         id: 'fill-holes',
         onChange: (v) => update({ rule: v ? 'evenodd' : 'nonzero' }),
       }),

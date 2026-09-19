@@ -12,8 +12,8 @@
  */
 
 import { compose, translation, scaling, rotation as rotate, apply } from '../geom/matrix.js';
-import { transformPath, boundsOf } from '../geom/path.js';
-import { hatchFill, isFillable, DEFAULTS as HATCH_DEFAULTS } from '../geom/hatch.js';
+import { transformPath, boundsOf, pathBounds } from '../geom/path.js';
+import { hatchFill, isFillable, isInside, DEFAULTS as HATCH_DEFAULTS } from '../geom/hatch.js';
 import { rejoinCuts } from './select.js';
 
 /**
@@ -122,27 +122,65 @@ export function fillableShapes(placement) {
   return rejoinCuts(placement.paths).filter(isFillable);
 }
 
+/** Is `inner` nested within `outer`? */
+function isNested(inner, outer) {
+  if (inner === outer) return false;
+
+  const a = pathBounds(inner);
+  const b = pathBounds(outer);
+
+  // Cheap rejection first: a shape that escapes the other's box is not inside
+  // it, and this is the case for nearly every pair.
+  if (a.minX < b.minX || a.maxX > b.maxX || a.minY < b.minY || a.maxY > b.maxY) return false;
+
+  // A vertex of the inner outline is the point to test. Its centre would not
+  // do — a C-shape's centre lies outside itself — but a point on it is inside
+  // whatever surrounds it.
+  return isInside([outer], inner.points[0]);
+}
+
 /**
- * Filled shapes grouped by the layer their hatch draws on.
+ * The shapes no other shape contains.
  *
- * Grouped rather than hatched one at a time because the fill rule only means
- * anything across a set of outlines: a ring is hollow because its inner circle
- * is counted against its outer one. Shapes filled in the same colour are the
- * natural group — one fill, one colour, holes and all.
+ * These are the ones worth filling: a silhouette's holes are not shapes a user
+ * wants to fill, they are the parts to leave open.
+ */
+export function topLevelShapes(placement) {
+  const shapes = fillableShapes(placement);
+  return shapes.filter((shape) => !shapes.some((other) => isNested(shape, other)));
+}
+
+/**
+ * One fill: the shape that was clicked, plus everything nested inside it.
+ *
+ * A silhouette with holes arrives as separate outlines, one per subpath, so a
+ * fill that took only the shape clicked would cover the holes it is meant to
+ * leave open. Handing the whole nest to the fill rule is what makes them
+ * holes — the same thing SVG calls a compound path, and it nests as deep as
+ * the drawing does: an island inside a hole is filled again.
+ */
+function compoundShape(shape, shapes) {
+  return [shape, ...shapes.filter((other) => isNested(other, shape))];
+}
+
+/**
+ * The fills of this placement, each as the shapes the fill rule runs over.
+ *
+ * Every fill is its own group. Two fills that overlap are drawn over each
+ * other rather than cancelling out, which is what a fill tool does everywhere
+ * else — the fill rule is for what is nested inside one fill, not for what two
+ * separate fills do to each other.
  */
 function fillGroups(placement) {
-  const groups = new Map();
+  const shapes = fillableShapes(placement);
+  const fills = placement.fills ?? {};
 
-  for (const shape of fillableShapes(placement)) {
-    const layerId = placement.fills?.[shape.id];
-    if (layerId === undefined) continue;
-
-    const key = layerId ?? '';
-    if (!groups.has(key)) groups.set(key, { layerId: layerId ?? null, shapes: [] });
-    groups.get(key).shapes.push(shape);
-  }
-
-  return [...groups.values()];
+  return shapes
+    .filter((shape) => shape.id in fills)
+    .map((shape) => ({
+      layerId: fills[shape.id] ?? null,
+      shapes: compoundShape(shape, shapes),
+    }));
 }
 
 /**
