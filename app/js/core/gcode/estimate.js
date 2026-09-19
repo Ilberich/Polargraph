@@ -1,15 +1,26 @@
 /**
  * How long a job will take.
  *
- * Dividing total length by feed rate is wrong by a wide margin on real
- * drawings. A plotter spends most of a flattened curve accelerating and
- * braking: at 1200 mm/min and 200 mm/s², a 0.5 mm segment never gets near its
- * commanded speed. Curves are made of thousands of such segments, so the naive
- * figure can be optimistic by a factor of several.
+ * Each move is modelled as a trapezoid — accelerate, cruise, decelerate —
+ * carrying a junction speed between consecutive moves so a straight run is not
+ * braked to a stop at every vertex.
  *
- * This models each move as a trapezoid — accelerate, cruise, decelerate —
- * carrying the junction speed between consecutive moves so a straight run is
- * not braked to a stop at every vertex.
+ * What this buys, measured against dividing length by feed rate at 1200 mm/min
+ * and 200 mm/s²:
+ *
+ *   smooth curves, however finely flattened   1.00–1.01×
+ *   collinear segments, however short         1.02×
+ *   zigzag with sharp reversals               up to 1.46×
+ *
+ * So it is direction changes that cost time, not segment count: speed carries
+ * through a gentle turn, and a straight line chopped into a thousand pieces is
+ * still a straight line. The naive figure is close for outlines and lettering,
+ * and badly optimistic for anything that reverses often — which is exactly
+ * what a hatch fill is.
+ *
+ * It also charges travel moves at the travel feed rather than the drawing
+ * feed, and adds the pen-swap pauses, neither of which a length-over-feed
+ * figure accounts for.
  */
 
 import { parseGcode } from './parser.js';

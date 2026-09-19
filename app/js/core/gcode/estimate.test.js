@@ -60,19 +60,53 @@ test('a rapid is quicker than the same distance drawn', () => {
   assert.ok(rapid.totalSeconds < drawn.totalSeconds);
 });
 
-test('the estimate exceeds the naive length-over-feed figure', () => {
-  // A flattened curve: many short segments, each one acceleration-limited.
-  // This gap is the whole reason the model exists.
+test('sharp reversals cost far more than length over feed suggests', () => {
+  // A zigzag, which is the shape of a hatch fill. Every vertex is a reversal,
+  // so the machine brakes to a near stop and accelerates again each time.
+  // This is the case the whole model exists for; smooth curves barely differ.
   const lines = ['G90'];
-  for (let i = 1; i <= 400; i++) lines.push(`G1 X${(i * 0.5).toFixed(2)} F1200`);
+  let length = 0;
+  let px = 0;
+  let py = 0;
+
+  for (let i = 1; i <= 100; i++) {
+    const x = (i % 2) * 2;
+    const y = i;
+    length += Math.hypot(x - px, y - py);
+    px = x;
+    py = y;
+    lines.push(`G1 X${x} Y${y} F1200`);
+  }
 
   const estimate = estimateGcode(lines.join('\n'));
-  const naive = 200 / (1200 / 60); // 200mm at 20mm/s = 10s
+  const naive = length / 20;
 
   assert.ok(
-    estimate.totalSeconds > naive,
-    `estimate ${estimate.totalSeconds.toFixed(1)}s should exceed naive ${naive}s`
+    estimate.drawSeconds > naive * 1.3,
+    `zigzag ${estimate.drawSeconds.toFixed(1)}s vs naive ${naive.toFixed(1)}s`
   );
+});
+
+test('a smooth curve is close to length over feed', () => {
+  // The counterpart: speed carries through a gentle turn, so a finely
+  // flattened circle should not be penalised.
+  const lines = ['G90', 'G0 X40 Y0 F3000'];
+  let length = 0;
+  let px = 40;
+  let py = 0;
+
+  for (let i = 1; i <= 256; i++) {
+    const angle = (2 * Math.PI * i) / 256;
+    const x = 40 * Math.cos(angle);
+    const y = 40 * Math.sin(angle);
+    length += Math.hypot(x - px, y - py);
+    px = x;
+    py = y;
+    lines.push(`G1 X${x.toFixed(4)} Y${y.toFixed(4)} F1200`);
+  }
+
+  const estimate = estimateGcode(lines.join('\n'));
+  assert.ok(estimate.drawSeconds < (length / 20) * 1.05);
 });
 
 test('a straight run is not braked at every vertex', () => {
