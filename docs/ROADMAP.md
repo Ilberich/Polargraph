@@ -49,7 +49,7 @@ Two notes for later phases:
 
 ---
 
-## Phase 2 — Design tool
+## Phase 2 — Design tool — **complete**
 
 The standalone app. Useful on its own, on a Chromebook, with no plotter.
 
@@ -62,7 +62,17 @@ The standalone app. Useful on its own, on a Chromebook, with no plotter.
 - localStorage persistence of job settings
 - Export gcode to file
 
-**Done when:** load SVGs, arrange, export plottable gcode — no hardware.
+**Done:** load SVGs, arrange, export plottable gcode — no hardware. 272 tests.
+
+Notes for later phases:
+
+- **Geometry is drawn under the canvas transform, not pre-transformed in JS.**
+  A drawing can run to tens of thousands of points and is redrawn on every
+  frame of a drag.
+- **Snap radius is specified in screen pixels** and converted to paper units at
+  the current zoom, so snapping feels the same at every magnification.
+- **The scene is immutable.** Undo, when it arrives, is a list of past scenes
+  rather than a log of inverse operations.
 
 ---
 

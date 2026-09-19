@@ -3,9 +3,9 @@
 A wall plotter driven by a Raspberry Pi Pico2W, with a web app that doubles as a
 standalone SVG-to-gcode design tool.
 
-**Status:** Phase 1 complete — the geometry and gcode engine. SVG import,
-curve flattening, gcode generation and parsing all work and are under test.
-The design tool's interface starts in Phase 2.
+**Status:** Phase 2 complete — the design tool works. Import SVGs and gcode,
+arrange them on the paper with snapping, and export plottable gcode. No
+hardware required. Gcode optimization and layers are next, in Phase 3.
 
 ## What it is
 
@@ -27,6 +27,9 @@ app/          static web app — no build step, no dependencies
     geom/     vectors, affine transforms, curve flattening, the path model
     svg/      XML reader, units, transforms, path data, shapes, importer
     gcode/    writer and parser
+    scene/    placements, the document, snapping, direct manipulation
+    view/     the paper-to-screen mapping
+  js/ui/      canvas rendering, pointer interaction, panels
 firmware/     MicroPython for the Pico 2 W (Phase 4)
 tools/        motion simulator and SD deploy script (Phase 4)
 docs/         specifications and decisions

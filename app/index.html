@@ -23,13 +23,7 @@
       <header class="header">
         <div class="header__brand">
           <!-- Two belts converging on the gondola. -->
-          <svg
-            class="header__mark"
-            width="20"
-            height="20"
-            viewBox="0 0 32 32"
-            aria-hidden="true"
-          >
+          <svg class="header__mark" width="20" height="20" viewBox="0 0 32 32" aria-hidden="true">
             <path
               d="M4 5 L16 21 L28 5"
               fill="none"
@@ -43,59 +37,25 @@
           <h1 class="header__title">Polargraph</h1>
         </div>
 
-        <!-- Filled by main.js once the environment is known. -->
+        <div class="header__actions">
+          <button class="button" type="button" id="import-svg">Import SVG</button>
+          <button class="button" type="button" id="import-gcode">Import gcode</button>
+          <button class="button button--primary" type="button" id="export-gcode">Export</button>
+        </div>
+
         <div id="mode-badge" class="badge badge--standalone">
           <span class="badge__dot"></span>
-          <span id="mode-label">Checking</span>
+          <span id="mode-label">Standalone</span>
         </div>
       </header>
 
       <main class="main">
         <section class="stage">
-          <div class="placeholder">
-            <svg
-              class="placeholder__mark"
-              width="64"
-              height="64"
-              viewBox="0 0 32 32"
-              aria-hidden="true"
-            >
-              <path
-                d="M4 5 L16 21 L28 5"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-              <circle cx="16" cy="24" r="2.5" fill="currentColor" />
-            </svg>
-
-            <h2 class="placeholder__title">Canvas coming in Phase 2</h2>
-            <p class="placeholder__body">
-              The shell is up and the build pipeline is live. Paper canvas, SVG
-              import and gcode generation land next.
-            </p>
-
-            <!-- Populated only when this origin cannot reach a plotter. -->
-            <div id="env-notice" hidden></div>
-          </div>
+          <canvas id="canvas" class="canvas"></canvas>
+          <p class="stage__status" id="status"></p>
         </section>
 
-        <aside class="panel">
-          <div class="card">
-            <h3 class="card__title">Machine</h3>
-            <dl id="machine-specs" class="spec"></dl>
-          </div>
-
-          <div class="card">
-            <h3 class="card__title">Build</h3>
-            <div class="phase">
-              <span>Phase 0</span>
-              <span class="phase__current">Foundation</span>
-            </div>
-          </div>
-        </aside>
+        <aside class="panel" id="panel"></aside>
       </main>
     </div>
 
