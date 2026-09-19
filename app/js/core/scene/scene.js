@@ -7,7 +7,8 @@
  * operations to get subtly wrong.
  */
 
-import { placementBounds, worldPaths } from './placement.js';
+import { placementBounds, worldPaths, placementPaths } from './placement.js';
+import { groupByLayer, layerIdFor } from './layers.js';
 
 export const DEFAULT_PAPER = {
   widthMm: 420,
@@ -15,8 +16,94 @@ export const DEFAULT_PAPER = {
   margins: { top: 20, right: 20, bottom: 20, left: 20 },
 };
 
-export function createScene({ paper = DEFAULT_PAPER, placements = [] } = {}) {
-  return { paper: { ...paper, margins: { ...paper.margins } }, placements };
+export function createScene({ paper = DEFAULT_PAPER, placements = [], layers = [] } = {}) {
+  return { paper: { ...paper, margins: { ...paper.margins } }, placements, layers };
+}
+
+export function addLayer(scene, layer) {
+  return { ...scene, layers: [...scene.layers, layer] };
+}
+
+export function updateLayer(scene, id, changes) {
+  return {
+    ...scene,
+    layers: scene.layers.map((l) => (l.id === id ? { ...l, ...changes } : l)),
+  };
+}
+
+/**
+ * Remove a layer.
+ *
+ * Anything assigned to it is left unassigned rather than deleted. A pen going
+ * away is not a reason to lose the strokes drawn with it.
+ */
+export function removeLayer(scene, id) {
+  return {
+    ...scene,
+    layers: scene.layers.filter((l) => l.id !== id),
+    placements: scene.placements.map((p) => {
+      if (p.layerId !== id && !Object.values(p.pathLayers ?? {}).includes(id)) return p;
+
+      const pathLayers = Object.fromEntries(
+        Object.entries(p.pathLayers ?? {}).filter(([, layerId]) => layerId !== id)
+      );
+
+      return { ...p, layerId: p.layerId === id ? null : p.layerId, pathLayers };
+    }),
+  };
+}
+
+/** Move a layer in plot order, which is the order pens are swapped in. */
+export function reorderLayer(scene, id, delta) {
+  const index = scene.layers.findIndex((l) => l.id === id);
+  if (index === -1) return scene;
+
+  const target = Math.max(0, Math.min(scene.layers.length - 1, index + delta));
+  if (target === index) return scene;
+
+  const layers = [...scene.layers];
+  const [moved] = layers.splice(index, 1);
+  layers.splice(target, 0, moved);
+
+  return { ...scene, layers };
+}
+
+/**
+ * Every visible path on the paper, tagged with the layer it belongs to.
+ *
+ * Tagging happens before the world transform so the layer can be looked up by
+ * the source path's id, which the transform preserves.
+ */
+export function taggedPaths(scene) {
+  const entries = [];
+
+  for (const placement of scene.placements) {
+    if (!placement.visible) continue;
+
+    const source = placementPaths(placement);
+    const world = worldPaths(placement);
+
+    world.forEach((path, index) => {
+      entries.push({ path, layerId: layerIdFor(placement, source[index]) });
+    });
+  }
+
+  return entries;
+}
+
+/**
+ * Paths grouped into the order they will be plotted, one group per pen.
+ *
+ * Hidden layers are dropped entirely: turning a layer off should mean not
+ * drawing it, not drawing it in a different order.
+ */
+export function scenePathsByLayer(scene) {
+  const visible = scene.layers.filter((l) => l.visible);
+  const hiddenIds = new Set(scene.layers.filter((l) => !l.visible).map((l) => l.id));
+
+  const entries = taggedPaths(scene).filter((e) => !hiddenIds.has(e.layerId));
+
+  return groupByLayer(visible, entries);
 }
 
 /** The drawable area inside the margins. */
@@ -96,9 +183,7 @@ export function pickAt(scene, point, slack = 0) {
 
 /** Every visible placement's geometry, on the paper, ready for gcode. */
 export function scenePaths(scene) {
-  return scene.placements
-    .filter((p) => p.visible)
-    .flatMap((p) => worldPaths(p));
+  return scenePathsByLayer(scene).flatMap((group) => group.paths);
 }
 
 /**

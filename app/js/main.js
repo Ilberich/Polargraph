@@ -13,14 +13,16 @@
 import { describeEnvironment, plotterUrl } from './core/env.js';
 import { importSvg } from './core/svg/import.js';
 import { gcodeToPaths } from './core/gcode/parser.js';
-import { writeGcode } from './core/gcode/writer.js';
+import { writeGcode, writeLayeredGcode } from './core/gcode/writer.js';
 import { optimize } from './core/gcode/optimize.js';
 import { estimateGcode } from './core/gcode/estimate.js';
 import { createPath } from './core/geom/path.js';
 import {
   createScene, addPlacement, removePlacement, updatePlacement, setPaper,
   reorderPlacement, scenePaths, fitToMargins, centreOnPaper, DEFAULT_PAPER,
+  addLayer, updateLayer, removeLayer, reorderLayer, scenePathsByLayer,
 } from './core/scene/scene.js';
+import { createLayer, assignPaths } from './core/scene/layers.js';
 import { createPlacement } from './core/scene/placement.js';
 import { createViewport, fitToCanvas } from './core/view/viewport.js';
 import { load, save, mergeSettings, defaultStorage } from './core/storage.js';
@@ -46,6 +48,7 @@ const state = {
   scene: createScene({ paper: DEFAULT_PAPER }),
   viewport: createViewport(),
   selectedId: null,
+  selectedLayerId: null,
   guides: [],
   settings: { ...DEFAULT_SETTINGS },
   status: '',
@@ -149,12 +152,9 @@ function drawPanels() {
  * about what optimization did.
  */
 function buildJob({ withBaseline = false } = {}) {
-  const paths = scenePaths(state.scene);
-  if (paths.length === 0) return null;
-
-  const { paths: ordered, report } = state.settings.optimize
-    ? optimize(paths)
-    : { paths, report: null };
+  const groups = scenePathsByLayer(state.scene);
+  const pathCount = groups.reduce((sum, g) => sum + g.paths.length, 0);
+  if (pathCount === 0) return null;
 
   const options = {
     penLift: state.settings.penLift,
@@ -163,14 +163,37 @@ function buildJob({ withBaseline = false } = {}) {
     travelZ: state.settings.travelZ,
   };
 
-  // The same job in import order, for comparison. Distance saved is a fact
-  // about the route, but what a user actually wants to know is how much
-  // sooner the plot finishes — and that depends on feed rates and on how much
-  // of the saving was in slow drawing moves versus fast travel.
-  const baseline =
-    withBaseline && report ? writeGcode(paths, options) : null;
+  // Optimized within each layer, never across one. Reordering strokes into a
+  // different pen's section would mean drawing them in the wrong colour.
+  let report = null;
 
-  return { gcode: writeGcode(ordered, options), baseline, report, pathCount: ordered.length };
+  const optimized = groups.map((group) => {
+    if (!state.settings.optimize) return group;
+
+    const result = optimize(group.paths);
+    report = report
+      ? {
+          before: report.before + result.report.before,
+          after: report.after + result.report.after,
+          saved: report.saved + result.report.saved,
+          pathsBefore: report.pathsBefore + result.report.pathsBefore,
+          pathsAfter: report.pathsAfter + result.report.pathsAfter,
+        }
+      : result.report;
+
+    return { ...group, paths: result.paths };
+  });
+
+  // The same job unoptimized, for the time comparison.
+  const baseline = withBaseline && report ? writeLayeredGcode(groups, options) : null;
+
+  return {
+    gcode: writeLayeredGcode(optimized, options),
+    baseline,
+    report,
+    pathCount,
+    layerCount: groups.length,
+  };
 }
 
 /**
@@ -297,6 +320,42 @@ const actions = {
   },
 
   fitView,
+
+  addLayer() {
+    const layer = createLayer();
+    setState({ scene: addLayer(state.scene, layer), selectedLayerId: layer.id });
+    scheduleAnalysis();
+  },
+
+  updateLayer(id, changes) {
+    setState({ scene: updateLayer(state.scene, id, changes) });
+    scheduleAnalysis();
+  },
+
+  removeLayer(id) {
+    setState({
+      scene: removeLayer(state.scene, id),
+      selectedLayerId: state.selectedLayerId === id ? null : state.selectedLayerId,
+    });
+    scheduleAnalysis();
+  },
+
+  reorderLayer(id, delta) {
+    setState({ scene: reorderLayer(state.scene, id, delta) });
+    scheduleAnalysis();
+  },
+
+  selectLayer(id) {
+    setState({ selectedLayerId: id });
+  },
+
+  /** Put a whole object onto a pen, clearing any per-path overrides it had. */
+  assignPlacementToLayer(placementId, layerId) {
+    setState({
+      scene: updatePlacement(state.scene, placementId, { layerId, pathLayers: {} }),
+    });
+    scheduleAnalysis();
+  },
 
   async importSvgFiles() {
     const files = await pickFiles({ accept: '.svg,image/svg+xml' });

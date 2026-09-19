@@ -5,7 +5,9 @@ import {
   createScene, marginBox, addPlacement, removePlacement, updatePlacement,
   getPlacement, reorderPlacement, pickAt, scenePaths, outsideMargins,
   fitToMargins, centreOnPaper, setPaper, DEFAULT_PAPER,
+  addLayer, updateLayer, removeLayer, reorderLayer, scenePathsByLayer,
 } from './scene.js';
+import { createLayer } from './layers.js';
 import { createPlacement, placementBounds } from './placement.js';
 import { createPath } from '../geom/path.js';
 
@@ -177,4 +179,86 @@ test('paper changes merge and do not mutate', () => {
 test('the default paper has sane margins', () => {
   const b = marginBox(DEFAULT_PAPER);
   assert.ok(b.width > 0 && b.height > 0);
+});
+
+// ----------------------------------------------------------------- layers --
+
+test('layers can be added, renamed and reordered', () => {
+  const a = createLayer({ name: 'A' });
+  const b = createLayer({ name: 'B' });
+  let scene = addLayer(addLayer(createScene({ paper }), a), b);
+
+  assert.deepEqual(scene.layers.map((l) => l.name), ['A', 'B']);
+
+  scene = updateLayer(scene, a.id, { name: 'Renamed' });
+  assert.equal(scene.layers[0].name, 'Renamed');
+
+  scene = reorderLayer(scene, a.id, 1);
+  assert.deepEqual(scene.layers.map((l) => l.name), ['B', 'Renamed']);
+});
+
+test('removing a layer keeps the strokes drawn with it', () => {
+  const layer = createLayer({ name: 'Red' });
+  const path = box(0, 0, 10, 10);
+  const placement = createPlacement({ paths: [path], layerId: layer.id });
+
+  let scene = addPlacement(addLayer(createScene({ paper }), layer), placement);
+  scene = removeLayer(scene, layer.id);
+
+  assert.equal(scene.layers.length, 0);
+  assert.equal(scene.placements.length, 1, 'the object survives');
+  assert.equal(getPlacement(scene, placement.id).layerId, null);
+  assert.equal(scenePaths(scene).length, 1, 'and is still plotted');
+});
+
+test('paths are grouped by layer in plot order', () => {
+  const first = createLayer({ name: 'First' });
+  const second = createLayer({ name: 'Second' });
+
+  const a = box(0, 0, 10, 10);
+  const b = box(20, 0, 10, 10);
+  const placement = createPlacement({
+    paths: [a, b],
+    layerId: first.id,
+    pathLayers: { [b.id]: second.id },
+  });
+
+  const scene = addPlacement(addLayer(addLayer(createScene({ paper }), first), second), placement);
+  const groups = scenePathsByLayer(scene);
+
+  assert.deepEqual(groups.map((g) => g.layer.name), ['First', 'Second']);
+  assert.equal(groups[0].paths.length, 1);
+  assert.equal(groups[1].paths.length, 1);
+});
+
+test('a hidden layer is not plotted at all', () => {
+  const shown = createLayer({ name: 'Shown' });
+  const hidden = createLayer({ name: 'Hidden', visible: false });
+
+  const a = box(0, 0, 10, 10);
+  const b = box(20, 0, 10, 10);
+  const placement = createPlacement({
+    paths: [a, b],
+    layerId: shown.id,
+    pathLayers: { [b.id]: hidden.id },
+  });
+
+  const scene = addPlacement(addLayer(addLayer(createScene({ paper }), shown), hidden), placement);
+
+  assert.equal(scenePaths(scene).length, 1, 'hiding a layer means not drawing it');
+});
+
+test('hatch lines inherit the placement layer', () => {
+  const layer = createLayer({ name: 'Fill' });
+  const placement = createPlacement({
+    paths: [box(0, 0, 40, 40)],
+    layerId: layer.id,
+    hatch: { enabled: true, spacingMm: 5, angleDeg: 0 },
+  });
+
+  const scene = addPlacement(addLayer(createScene({ paper }), layer), placement);
+  const groups = scenePathsByLayer(scene);
+
+  assert.equal(groups.length, 1);
+  assert.ok(groups[0].paths.length > 5, 'outline and fill together');
 });

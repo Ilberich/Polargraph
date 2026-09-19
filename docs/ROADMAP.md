@@ -76,7 +76,7 @@ Notes for later phases:
 
 ---
 
-## Phase 3 — Gcode pipeline
+## Phase 3 — Gcode pipeline — **in progress**
 
 The features that make output good rather than merely correct.
 
@@ -85,8 +85,14 @@ The features that make output good rather than merely correct.
   choice. Runs in continuous-line mode while `penLift` is false (AD-2).
 - **Hatch fill:** polygon flattening, scanline intersection with fill-rule
   handling, configurable angle and spacing, single and cross.
-- **Layers:** breaks on the scrubber timeline, pen/colour per layer, auto-sort to
-  minimize swaps, `M0` insertion at each break.
+- **Layers:** done. A layer is a pen. Membership is held against stable path
+  ids rather than positions, so it survives the optimizer reordering,
+  reversing and merging paths. Optimization runs *within* a layer and never
+  across one — reordering a stroke into another pen's section would draw it in
+  the wrong colour. Each boundary emits `G28` then `M0`, because the swap
+  happens wherever the gondola is standing and reaching into a half-finished
+  drawing is how it gets smudged.
+  - Assignment is per object today; per-stroke selection is the next piece.
 - **Scrubber:** playback head rendering moves in real time.
 - **Time estimate:** trapezoidal velocity model over path length, feed rate and
   acceleration; live update.

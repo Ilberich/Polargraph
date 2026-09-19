@@ -10,6 +10,7 @@ import { el, clear, numberField, checkboxField, button, card } from './dom.js';
 import { marginBox, outsideMargins } from '../core/scene/scene.js';
 import { placementBounds, placementLength, canHatch } from '../core/scene/placement.js';
 import { formatDuration } from '../core/gcode/estimate.js';
+import { el as element } from './dom.js';
 import { BUILD } from '../build.js';
 
 const mm = (value) => `${Math.round(value * 10) / 10}`;
@@ -114,6 +115,8 @@ function transformCard(state, actions) {
       el('dd', { class: 'spec__value' }, `${mm(placementLength(placement))} mm`),
     ]),
 
+    penRow(state, actions, placement),
+
     el('div', { class: 'button-row' }, [
       button({ label: 'Fit to margins', onClick: () => actions.fit(placement.id) }),
       button({ label: 'Centre', onClick: () => actions.centre(placement.id) }),
@@ -179,6 +182,108 @@ function fillCard(state, actions) {
       }),
     ]),
 
+  ]);
+}
+
+/**
+ * Layers: the pens, in the order they will be swapped.
+ *
+ * Order is the point of this list, not decoration — it is the sequence the
+ * machine will stop for. Colour is the pen's own ink, shown so the canvas can
+ * be read at a glance.
+ */
+function layersCard(state, actions) {
+  const { layers } = state.scene;
+
+  const rows = layers.map((layer, index) => {
+    const swatch = el('input', {
+      class: 'layer__colour',
+      type: 'color',
+      value: layer.color,
+      title: 'Pen colour',
+      id: `layer-colour-${layer.id}`,
+      onchange: (e) => actions.updateLayer(layer.id, { color: e.target.value }),
+      onclick: (e) => e.stopPropagation(),
+    });
+
+    const name = el('input', {
+      class: 'layer__name',
+      type: 'text',
+      value: layer.name,
+      id: `layer-name-${layer.id}`,
+      onchange: (e) => actions.updateLayer(layer.id, { name: e.target.value.trim() || layer.name }),
+      onclick: (e) => e.stopPropagation(),
+    });
+
+    return el('div', {
+      class: `layer ${layer.id === state.selectedLayerId ? 'layer--selected' : ''}`.trim(),
+      onclick: () => actions.selectLayer(layer.id),
+    }, [
+      el('span', { class: 'layer__order', title: `Pen ${index + 1} of ${layers.length}` },
+        String(index + 1)),
+      swatch,
+      name,
+      el('button', {
+        class: 'object__visibility',
+        type: 'button',
+        title: layer.visible ? 'Hide' : 'Show',
+        onclick: (e) => {
+          e.stopPropagation();
+          actions.updateLayer(layer.id, { visible: !layer.visible });
+        },
+      }, layer.visible ? '●' : '○'),
+      el('button', {
+        class: 'object__remove',
+        type: 'button',
+        title: 'Remove pen',
+        onclick: (e) => {
+          e.stopPropagation();
+          actions.removeLayer(layer.id);
+        },
+      }, '×'),
+    ]);
+  });
+
+  const selected = layers.find((l) => l.id === state.selectedLayerId);
+
+  return card('Layers', [
+    layers.length === 0
+      ? el('p', { class: 'empty' }, 'One pen for everything. Add a layer to plot in more than one colour.')
+      : el('div', { class: 'object-list' }, rows),
+
+    el('div', { class: 'button-row' }, [
+      button({ label: 'Add pen', onClick: actions.addLayer }),
+      selected && button({
+        label: 'Move up',
+        onClick: () => actions.reorderLayer(selected.id, -1),
+      }),
+      selected && button({
+        label: 'Move down',
+        onClick: () => actions.reorderLayer(selected.id, 1),
+      }),
+    ].filter(Boolean)),
+  ]);
+}
+
+/** Which pen draws the selected object. */
+function penRow(state, actions, placement) {
+  const { layers } = state.scene;
+  if (layers.length === 0) return null;
+
+  const select = el('select', {
+    class: 'field__input',
+    id: 'transform-layer',
+    onchange: (e) =>
+      actions.assignPlacementToLayer(placement.id, e.target.value || null),
+  }, [
+    element('option', { value: '', selected: placement.layerId == null }, 'Unassigned'),
+    ...layers.map((layer) =>
+      element('option', { value: layer.id, selected: placement.layerId === layer.id }, layer.name)),
+  ]);
+
+  return el('label', { class: 'field' }, [
+    el('span', { class: 'field__label' }, 'Pen'),
+    el('span', { class: 'field__control' }, [select]),
   ]);
 }
 
@@ -352,6 +457,7 @@ export function renderPanels(container, state, actions) {
 
   const cards = [
     objectsCard(state, actions),
+    layersCard(state, actions),
     transformCard(state, actions),
     fillCard(state, actions),
     paperCard(state, actions),

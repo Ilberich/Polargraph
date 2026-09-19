@@ -14,6 +14,7 @@
 
 import { placementMatrix, placementBounds, placementPaths } from '../core/scene/placement.js';
 import { marginBox } from '../core/scene/scene.js';
+import { layerIdFor } from '../core/scene/layers.js';
 import { toScreen } from '../core/view/viewport.js';
 
 /** Screen size of a selection handle, in CSS pixels. */
@@ -125,11 +126,11 @@ function drawMargins(ctx, scene, viewport, theme) {
   ctx.restore();
 }
 
-/** Trace a placement's paths in its own coordinate system. */
-function tracePaths(ctx, placement) {
+/** Trace one batch of paths in the placement's own coordinate system. */
+function traceBatch(ctx, paths) {
   ctx.beginPath();
 
-  for (const path of placementPaths(placement)) {
+  for (const path of paths) {
     const [first, ...rest] = path.points;
     if (!first) continue;
 
@@ -139,7 +140,31 @@ function tracePaths(ctx, placement) {
   }
 }
 
-function drawPlacement(ctx, placement, viewport, theme, selected) {
+/**
+ * Group a placement's paths by the colour they will be drawn in.
+ *
+ * Batching by colour keeps this to one stroke call per pen rather than one per
+ * path, which matters when a hatch fill runs to thousands of lines.
+ */
+function batchByColour(placement, layers, fallback) {
+  const batches = new Map();
+
+  for (const path of placementPaths(placement)) {
+    const layerId = layerIdFor(placement, path);
+    const layer = layers.find((l) => l.id === layerId);
+
+    // A hidden layer is not drawn, matching what would be plotted.
+    if (layer && !layer.visible) continue;
+
+    const colour = layer?.color ?? fallback;
+    if (!batches.has(colour)) batches.set(colour, []);
+    batches.get(colour).push(path);
+  }
+
+  return batches;
+}
+
+function drawPlacement(ctx, placement, viewport, theme, selected, layers) {
   if (!placement.visible) return;
 
   const m = placementMatrix(placement);
@@ -153,12 +178,17 @@ function drawPlacement(ctx, placement, viewport, theme, selected) {
   // reads the same whatever is in the pen holder.
   const totalScale = viewport.scale * Math.abs(placement.scale || 1);
   ctx.lineWidth = (selected ? 1.5 : 1.1) / (totalScale || 1);
-  ctx.strokeStyle = selected ? theme.accent : theme.ink;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  tracePaths(ctx, placement);
-  ctx.stroke();
+  for (const [colour, paths] of batchByColour(placement, layers, theme.ink)) {
+    // Selection has to stay legible, so it overrides the pen colour rather
+    // than sitting alongside it — there is no second channel to show it in.
+    ctx.strokeStyle = selected ? theme.accent : colour;
+    traceBatch(ctx, paths);
+    ctx.stroke();
+  }
+
   ctx.restore();
 }
 
@@ -270,7 +300,7 @@ export function render(canvas, { scene, viewport, selectedId = null, guides = []
   drawMargins(ctx, scene, viewport, theme);
 
   for (const placement of scene.placements) {
-    drawPlacement(ctx, placement, viewport, theme, placement.id === selectedId);
+    drawPlacement(ctx, placement, viewport, theme, placement.id === selectedId, scene.layers ?? []);
   }
 
   const selected = scene.placements.find((p) => p.id === selectedId);

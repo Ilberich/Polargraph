@@ -554,3 +554,82 @@
     padding: 0 var(--space-2);
   }
 }
+
+/* ---------------------------------------------------------------- layers -- */
+
+.layer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap);
+  padding: 0 var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.layer:hover {
+  background: var(--surface);
+}
+
+.layer--selected {
+  background: var(--accent-fade);
+  border-color: var(--accent-dim);
+}
+
+.layer__order {
+  flex: none;
+  width: 18px;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.layer__colour {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: none;
+  cursor: pointer;
+}
+
+.layer__colour::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.layer__colour::-webkit-color-swatch {
+  border: none;
+  border-radius: 2px;
+}
+
+.layer__name {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+  padding: var(--space-1) var(--space-2);
+}
+
+.layer__name:hover {
+  border-color: var(--border);
+}
+
+.layer__name:focus {
+  background: var(--surface-sunken);
+  border-color: var(--accent-dim);
+  outline: none;
+}
+
+/* A select needs the same treatment as the number fields. */
+select.field__input {
+  min-height: 38px;
+  cursor: pointer;
+}

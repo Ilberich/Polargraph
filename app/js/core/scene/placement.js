@@ -53,6 +53,8 @@ export function createPlacement({
   scale = 1,
   visible = true,
   hatch = DEFAULT_HATCH,
+  layerId = null,
+  pathLayers = {},
   id = null,
 } = {}) {
   const sourceBounds = boundsOf(paths) ?? {
@@ -78,6 +80,10 @@ export function createPlacement({
     scale,
     visible,
     hatch: { ...DEFAULT_HATCH, ...hatch },
+    /** Default pen for everything in this placement. */
+    layerId,
+    /** Per-path overrides, keyed by stable path id. */
+    pathLayers: { ...pathLayers },
   };
 }
 

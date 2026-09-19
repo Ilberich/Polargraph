@@ -15,14 +15,27 @@
 import { distance } from './vec2.js';
 import { apply } from './matrix.js';
 
+let nextPathId = 1;
+
+/** Reset path id allocation. Tests only. */
+export function resetPathIds() {
+  nextPathId = 1;
+}
+
 /**
  * Build a path.
  *
  * Z defaults to 0 so callers that do not care about pen height — an SVG
  * importer, say — can pass plain `{x, y}` points and get valid paths.
+ *
+ * Every path carries a stable id. Layer membership is held against that id
+ * rather than against a position in an array, so assigning a stroke to a pen
+ * survives reordering, optimization, and anything else that shuffles paths
+ * around. An explicit id can be passed to keep identity through a transform.
  */
-export function createPath(points, { closed = false, meta = {} } = {}) {
+export function createPath(points, { closed = false, meta = {}, id = null } = {}) {
   return {
+    id: id ?? `s${nextPathId++}`,
     points: points.map((p) => ({ x: p.x, y: p.y, z: p.z ?? 0 })),
     closed,
     meta,

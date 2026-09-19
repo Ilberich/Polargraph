@@ -22,6 +22,8 @@ export const DEFAULTS = {
   precision: 3,
   /** Return to the calibrated home corner before ending. */
   endWithHome: true,
+  /** Emit the end-of-program code. Off when writing one section of a job. */
+  endProgram: true,
   /** Include a comment header describing the job. */
   header: true,
 };
@@ -162,6 +164,57 @@ export function writeGcode(paths, options = {}) {
     const raise = state.axis('Z', opts.travelZ);
     if (raise) lines.push(`G0 ${raise}`);
   }
+
+  if (opts.endProgram) {
+    if (opts.endWithHome) lines.push('G28');
+    lines.push('M30');
+  }
+
+  return `${lines.join('\n')}\n`;
+}
+
+/**
+ * Write a job split across pens.
+ *
+ * Each group is plotted in full, then the gondola returns to the home corner
+ * and the program pauses so the pen can be changed. Homing first matters: the
+ * swap happens wherever the gondola is standing, and reaching into the middle
+ * of a half-finished drawing to change a pen is how drawings get smudged.
+ *
+ * No pause is emitted before the first group or after the last — the first pen
+ * is already in the holder, and the job ends by homing anyway.
+ */
+export function writeLayeredGcode(groups, options = {}) {
+  const opts = { ...DEFAULTS, ...options };
+  const drawable = groups.filter((group) => group.paths.some((p) => !isDegenerate(p)));
+
+  if (drawable.length === 0) return writeGcode([], opts);
+  if (drawable.length === 1) return writeGcode(drawable[0].paths, opts);
+
+  const sections = drawable.map((group, index) => {
+    // Only the first section carries the header; only the last ends the
+    // program. The pieces between are bodies, spliced together below.
+    const body = writeGcode(group.paths, {
+      ...opts,
+      header: index === 0 && opts.header,
+      endWithHome: false,
+      endProgram: false,
+    });
+
+    return { name: group.layer?.name ?? 'Unassigned', body: body.trimEnd() };
+  });
+
+  const lines = [];
+
+  sections.forEach((section, index) => {
+    if (index > 0) {
+      // Home, then stop, then say which pen is wanted next.
+      if (opts.endWithHome) lines.push('G28');
+      lines.push(`M0 ; change pen: ${section.name}`);
+    }
+
+    lines.push(section.body);
+  });
 
   if (opts.endWithHome) lines.push('G28');
   lines.push('M30');
