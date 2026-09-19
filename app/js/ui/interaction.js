@@ -67,6 +67,16 @@ export function attachInteraction(canvas, host) {
       return { type: 'pan', from: screen, viewport: host.getViewport() };
     }
 
+    // Painting locks everything else out. That is the point of it being a
+    // mode: a stroke that nudged the object while choosing part of it would
+    // make the choice impossible to make accurately.
+    if (host.getPaint()) {
+      // Alt takes back rather than adds, the usual convention for a selection.
+      const gesture = { type: 'paint', erase: event.altKey };
+      host.paintAt(paper, gesture.erase);
+      return gesture;
+    }
+
     const selected = host.getSelectedId()
       ? scene.placements.find((p) => p.id === host.getSelectedId())
       : null;
@@ -153,6 +163,11 @@ export function attachInteraction(canvas, host) {
         break;
       }
 
+      case 'paint': {
+        host.paintAt(paper, gesture.erase);
+        break;
+      }
+
       case 'scale': {
         const placement = host.getScene().placements.find((p) => p.id === gesture.id);
         if (!placement) return;
@@ -192,6 +207,8 @@ export function attachInteraction(canvas, host) {
   };
 
   const onPointerMove = (event) => {
+    if (host.getPaint()) host.setBrushAt(canvasPoint(canvas, event));
+
     if (!gesture) {
       host.setCursor(hoverCursor(event));
       return;
@@ -213,6 +230,8 @@ export function attachInteraction(canvas, host) {
 
   /** Cursor hint for what a press would do here. */
   function hoverCursor(event) {
+    if (host.getPaint()) return 'crosshair';
+
     const screen = canvasPoint(canvas, event);
     const selectedId = host.getSelectedId();
     const selected = selectedId
@@ -239,7 +258,10 @@ export function attachInteraction(canvas, host) {
     host.setViewport(zoomAt(host.getViewport(), canvasPoint(canvas, event), factor));
   };
 
+  const onPointerLeave = () => host.setBrushAt(null);
+
   canvas.addEventListener('pointerdown', onPointerDown);
+  canvas.addEventListener('pointerleave', onPointerLeave);
   canvas.addEventListener('pointermove', onPointerMove);
   canvas.addEventListener('pointerup', onPointerUp);
   canvas.addEventListener('pointercancel', onPointerUp);
@@ -251,6 +273,7 @@ export function attachInteraction(canvas, host) {
     paperAt,
     destroy() {
       canvas.removeEventListener('pointerdown', onPointerDown);
+      canvas.removeEventListener('pointerleave', onPointerLeave);
       canvas.removeEventListener('pointermove', onPointerMove);
       canvas.removeEventListener('pointerup', onPointerUp);
       canvas.removeEventListener('pointercancel', onPointerUp);

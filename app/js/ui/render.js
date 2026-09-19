@@ -15,6 +15,7 @@
 import { placementMatrix, placementBounds, placementPaths } from '../core/scene/placement.js';
 import { marginBox } from '../core/scene/scene.js';
 import { layerIdFor } from '../core/scene/layers.js';
+import { segmentCount, runsOf } from '../core/scene/select.js';
 import { toScreen } from '../core/view/viewport.js';
 
 /** Screen size of a selection handle, in CSS pixels. */
@@ -192,6 +193,59 @@ function drawPlacement(ctx, placement, viewport, theme, selected, layers) {
   ctx.restore();
 }
 
+/**
+ * The painted selection, drawn over the geometry it covers.
+ *
+ * Drawn as runs rather than segment by segment so a brushed stretch reads as
+ * one continuous mark, and heavier than the drawing itself so it is legible
+ * against whatever pen colour is underneath.
+ */
+function drawPaintSelection(ctx, placement, viewport, theme, selection) {
+  const m = placementMatrix(placement);
+  const totalScale = viewport.scale * Math.abs(placement.scale || 1);
+
+  ctx.save();
+  ctx.translate(viewport.x, viewport.y);
+  ctx.scale(viewport.scale, viewport.scale);
+  ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
+
+  ctx.strokeStyle = theme.accent;
+  ctx.lineWidth = 3.5 / (totalScale || 1);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+
+  for (const path of placement.paths) {
+    const chosen = selection.get(path.id);
+    if (!chosen || chosen.size === 0) continue;
+
+    for (const run of runsOf([...chosen], segmentCount(path), path.closed)) {
+      const points = path.points;
+      ctx.moveTo(points[run[0]].x, points[run[0]].y);
+
+      for (const i of run) {
+        const end = points[(i + 1) % points.length];
+        ctx.lineTo(end.x, end.y);
+      }
+    }
+  }
+
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** The brush, shown at its true size so its reach is never a guess. */
+function drawBrush(ctx, cursor, radiusPx, theme) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cursor.x, cursor.y, radiusPx, 0, Math.PI * 2);
+  ctx.strokeStyle = theme.ink;
+  ctx.globalAlpha = 0.7;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+}
+
 /** Screen positions of the scale handles, clockwise from the top left. */
 export function handlePositions(placement, viewport) {
   const b = placementBounds(placement);
@@ -286,7 +340,9 @@ function drawGuides(ctx, guides, viewport, size, theme) {
 }
 
 /** Draw the whole scene. */
-export function render(canvas, { scene, viewport, selectedId = null, guides = [], gridMm = 0 }) {
+export function render(canvas, {
+  scene, viewport, selectedId = null, guides = [], gridMm = 0, paint = null,
+}) {
   const { width, height, ratio } = resizeCanvas(canvas);
   const ctx = canvas.getContext('2d');
   const theme = readTheme(canvas);
@@ -299,11 +355,27 @@ export function render(canvas, { scene, viewport, selectedId = null, guides = []
   drawGrid(ctx, scene, viewport, theme, gridMm);
   drawMargins(ctx, scene, viewport, theme);
 
+  // Painting highlights parts of one object, so that object is drawn in its
+  // own pen colours rather than as a selection — otherwise the highlight would
+  // be accent on accent, and invisible.
+  const painted = paint
+    ? scene.placements.find((p) => p.id === paint.placementId)
+    : null;
+
   for (const placement of scene.placements) {
-    drawPlacement(ctx, placement, viewport, theme, placement.id === selectedId, scene.layers ?? []);
+    const selected = placement.id === selectedId && placement !== painted;
+    drawPlacement(ctx, placement, viewport, theme, selected, scene.layers ?? []);
   }
 
-  const selected = scene.placements.find((p) => p.id === selectedId);
+  if (painted && painted.visible) {
+    drawPaintSelection(ctx, painted, viewport, theme, paint.selection);
+    if (paint.cursor && paint.tool === 'brush') {
+      drawBrush(ctx, paint.cursor, paint.radiusPx, theme);
+    }
+  }
+
+  // Handles move and resize, which painting locks out, so they are not shown.
+  const selected = painted ? null : scene.placements.find((p) => p.id === selectedId);
   if (selected && selected.visible) drawSelection(ctx, selected, viewport, theme);
 
   drawGuides(ctx, guides, viewport, { width, height }, theme);

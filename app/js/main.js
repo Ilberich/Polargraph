@@ -23,12 +23,14 @@ import {
   addLayer, updateLayer, removeLayer, reorderLayer, scenePathsByLayer,
 } from './core/scene/scene.js';
 import { createLayer, assignPaths } from './core/scene/layers.js';
-import { createPlacement } from './core/scene/placement.js';
-import { createViewport, fitToCanvas } from './core/view/viewport.js';
+import { createPlacement, placementMatrix } from './core/scene/placement.js';
+import { segmentsWithin, pickPath, assignSelection, segmentCount } from './core/scene/select.js';
+import { invert, apply } from './core/geom/matrix.js';
+import { createViewport, fitToCanvas, screenToPaperDistance } from './core/view/viewport.js';
 import { load, save, mergeSettings, defaultStorage } from './core/storage.js';
 import { render } from './ui/render.js';
 import { attachInteraction } from './ui/interaction.js';
-import { renderPanels, describePaper } from './ui/panels.js';
+import { renderPanels, describePaper, NEW_PEN } from './ui/panels.js';
 import { downloadText, pickFiles, isTextEntry } from './ui/dom.js';
 
 const DEFAULT_SETTINGS = {
@@ -50,6 +52,14 @@ const state = {
   selectedId: null,
   selectedLayerId: null,
   guides: [],
+  /**
+   * Paint mode, or null.
+   *
+   * A mode rather than a tool that coexists with dragging: choosing part of a
+   * stroke accurately is impossible if the same gesture might move the object
+   * instead. `selection` maps a path id to the indices of its chosen segments.
+   */
+  paint: null,
   settings: { ...DEFAULT_SETTINGS },
   status: '',
   /**
@@ -107,6 +117,7 @@ function drawCanvas() {
     selectedId: state.selectedId,
     guides: state.guides,
     gridMm: state.settings.showGrid ? state.settings.snap.gridMm : 0,
+    paint: state.paint,
   });
 }
 
@@ -273,10 +284,102 @@ function setStatus(message) {
   setState({ status: message });
 }
 
+
+// ---------------------------------------------------------------- painting --
+
+/** Brush size in screen pixels, so its reach is what it looks like. */
+const DEFAULT_BRUSH_PX = 14;
+
+/** Click tolerance for taking a whole stroke, in screen pixels. */
+const PICK_PIXELS = 8;
+
+function paintedPlacement() {
+  return state.paint
+    ? state.scene.placements.find((p) => p.id === state.paint.placementId)
+    : null;
+}
+
+const allSegments = (path) => Array.from({ length: segmentCount(path) }, (_, i) => i);
+
+/** Add or take back segments of one path. Returns whether anything changed. */
+function toggleSegments(selection, path, indices, erase) {
+  const before = selection.get(path.id);
+  const next = new Set(before ?? []);
+
+  for (const i of indices) {
+    if (erase) next.delete(i);
+    else next.add(i);
+  }
+
+  if (next.size === (before?.size ?? 0)) return false;
+
+  if (next.size === 0) selection.delete(path.id);
+  else selection.set(path.id, next);
+
+  return true;
+}
+
+/**
+ * Paint at a point on the paper.
+ *
+ * Works in the placement's own coordinates, so a rotated or scaled object is
+ * painted where it looks, and the brush is converted from screen pixels the
+ * same way — its reach on screen is what the ring shows whatever the zoom.
+ */
+function paintAt(paper, altHeld) {
+  const placement = paintedPlacement();
+  if (!placement) return;
+
+  // Alt is the desktop shortcut; the toggle is how a tablet gets there.
+  const erase = altHeld || state.paint.erase;
+
+  const scale = Math.abs(placement.scale) || 1;
+  const local = apply(invert(placementMatrix(placement)), paper);
+  const selection = new Map(state.paint.selection);
+  let changed = false;
+
+  if (state.paint.tool === 'whole') {
+    const tolerance = screenToPaperDistance(state.viewport, PICK_PIXELS) / scale;
+    const path = pickPath(placement.paths, local, tolerance);
+    if (path) changed = toggleSegments(selection, path, allSegments(path), erase);
+  } else {
+    const radius = screenToPaperDistance(state.viewport, state.paint.radiusPx) / scale;
+
+    for (const path of placement.paths) {
+      const hits = segmentsWithin(path, local, radius);
+      if (hits.length > 0) changed = toggleSegments(selection, path, hits, erase) || changed;
+    }
+  }
+
+  if (!changed) return;
+
+  // Canvas only: rebuilding the panel on every pointermove of a stroke would
+  // replace the controls the user is painting with. The panel catches up when
+  // the stroke ends.
+  state.paint = { ...state.paint, selection };
+  scheduleRender({ panels: false });
+}
+
+function setBrushAt(cursor) {
+  if (!state.paint || (!cursor && !state.paint.cursor)) return;
+
+  state.paint = { ...state.paint, cursor };
+  scheduleRender({ panels: false });
+}
+
+/** How many strokes the selection touches, for the panel. */
+function paintSelectionSize() {
+  return state.paint ? state.paint.selection.size : 0;
+}
+
 // ----------------------------------------------------------------- actions --
 
 const actions = {
-  select: (id) => setState({ selectedId: id }),
+  // Choosing a different object leaves paint mode: the mode belongs to the
+  // object it was started on.
+  select(id) {
+    setState({ selectedId: id, paint: state.paint?.placementId === id ? state.paint : null });
+  },
 
   update(id, changes) {
     setState({ scene: updatePlacement(state.scene, id, changes) });
@@ -287,6 +390,7 @@ const actions = {
     setState({
       scene: removePlacement(state.scene, id),
       selectedId: state.selectedId === id ? null : state.selectedId,
+      paint: state.paint?.placementId === id ? null : state.paint,
     });
     scheduleAnalysis();
   },
@@ -355,6 +459,106 @@ const actions = {
       scene: updatePlacement(state.scene, placementId, { layerId, pathLayers: {} }),
     });
     scheduleAnalysis();
+  },
+
+  /**
+   * Enter paint mode on an object.
+   *
+   * Moving, scaling and rotating are locked out while it is on — see the
+   * gesture handler. Leaving the mode is the only way back.
+   */
+  startPaint(placementId) {
+    setState({
+      selectedId: placementId,
+      paint: {
+        placementId,
+        tool: 'brush',
+        radiusPx: DEFAULT_BRUSH_PX,
+        erase: false,
+        selection: new Map(),
+        cursor: null,
+        target: '',
+      },
+    });
+  },
+
+  endPaint() {
+    setState({ paint: null });
+  },
+
+  setPaintTool(tool) {
+    if (!state.paint) return;
+    setState({ paint: { ...state.paint, tool } });
+  },
+
+  setPaintRadius(radiusPx) {
+    if (!state.paint) return;
+    setState({ paint: { ...state.paint, radiusPx: Math.max(1, radiusPx) } });
+  },
+
+  setPaintErase(erase) {
+    if (!state.paint) return;
+    setState({ paint: { ...state.paint, erase } });
+  },
+
+  setPaintTarget(target) {
+    if (!state.paint) return;
+    setState({ paint: { ...state.paint, target } });
+  },
+
+  clearPaintSelection() {
+    if (!state.paint) return;
+    setState({ paint: { ...state.paint, selection: new Map() } });
+  },
+
+  selectAllPaint() {
+    const placement = paintedPlacement();
+    if (!placement) return;
+
+    const selection = new Map(
+      placement.paths
+        .filter((path) => segmentCount(path) > 0)
+        .map((path) => [path.id, new Set(allSegments(path))])
+    );
+
+    setState({ paint: { ...state.paint, selection } });
+  },
+
+  /**
+   * Put the painted selection on a pen.
+   *
+   * A partly painted stroke is cut here, which is why the whole placement's
+   * paths are replaced rather than only its overrides. The selection is
+   * dropped afterwards: the pieces it referred to no longer exist.
+   */
+  assignPaintSelection() {
+    const placement = paintedPlacement();
+    if (!placement || state.paint.selection.size === 0) return;
+
+    const target = state.paint.target;
+    let scene = state.scene;
+    let layerId = target === '' ? null : target;
+
+    if (target === NEW_PEN) {
+      const layer = createLayer();
+      scene = addLayer(scene, layer);
+      layerId = layer.id;
+    }
+
+    const { paths, pathLayers } = assignSelection(placement, state.paint.selection, layerId);
+    const pen = scene.layers.find((l) => l.id === layerId);
+
+    setState({
+      scene: updatePlacement(scene, placement.id, { paths, pathLayers }),
+      paint: { ...state.paint, selection: new Map(), target: layerId ?? '' },
+    });
+
+    scheduleAnalysis();
+    const cut = paths.length - placement.paths.length;
+    setStatus(
+      `Moved the selection to ${pen ? pen.name : 'the object\u2019s own pen'}.` +
+        (cut > 0 ? ` ${cut} stroke${cut === 1 ? '' : 's'} split.` : '')
+    );
   },
 
   async importSvgFiles() {
@@ -448,7 +652,13 @@ const host = {
     if (canvas.style.cursor !== cursor) canvas.style.cursor = cursor;
   },
   isPanModifier: () => panModifier,
-  commit: () => {},
+  getPaint: () => state.paint,
+  paintAt,
+  setBrushAt,
+  // A stroke is finished: let the panel catch up with what was painted.
+  commit: () => {
+    if (state.paint) scheduleRender();
+  },
 };
 
 // ------------------------------------------------------------------- boot --
@@ -486,6 +696,13 @@ function main() {
 
     const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName);
     if (typing) return;
+
+    if (state.paint) {
+      // The object is being painted, not edited: removing it out from under
+      // the mode would leave nothing to paint on.
+      if (event.key === 'Escape') actions.endPaint();
+      return;
+    }
 
     if ((event.key === 'Delete' || event.key === 'Backspace') && state.selectedId) {
       event.preventDefault();

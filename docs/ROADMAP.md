@@ -92,7 +92,20 @@ The features that make output good rather than merely correct.
   the wrong colour. Each boundary emits `G28` then `M0`, because the swap
   happens wherever the gondola is standing and reaching into a half-finished
   drawing is how it gets smudged.
-  - Assignment is per object today; per-stroke selection is the next piece.
+- **Paint selection:** done. A mode on one object, entered from the transform
+  card, that locks moving and scaling and gives two tools: a brush that takes
+  the segments it is dragged across, and a picker that takes a whole stroke.
+  The selection goes onto an existing pen or a new one.
+  - A partly painted stroke is cut in two so its painted run can carry a
+    different pen. The pieces meet end to end, so the drawn geometry is
+    unchanged and the optimizer's merge rejoins them if they end up on the
+    same pen again.
+  - Cut pieces record what they came from, and a fill is worked out from the
+    rejoined outline. Painting half the edge of a filled shape therefore
+    leaves its hatch exactly as it was — an outline in pieces has no inside.
+  - Brush granularity is a whole segment. Curves are flattened finely so the
+    brush is fine on them; a long straight run is one segment and is taken
+    whole.
 - **Scrubber:** playback head rendering moves in real time.
 - **Time estimate:** trapezoidal velocity model over path length, feed rate and
   acceleration; live update.

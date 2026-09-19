@@ -125,7 +125,98 @@ function transformCard(state, actions) {
       button({ label: 'Bring forward', onClick: () => actions.reorder(placement.id, 1) }),
       button({ label: 'Send back', onClick: () => actions.reorder(placement.id, -1) }),
     ]),
+    el('div', { class: 'button-row' }, [
+      button({
+        label: 'Paint\u2026',
+        title: 'Choose part of this object and put it on another pen',
+        onClick: () => actions.startPaint(placement.id),
+      }),
+    ]),
   ]);
+}
+
+/** Sentinel value for the pen that does not exist yet. */
+export const NEW_PEN = '__new__';
+
+/**
+ * Paint mode: choosing part of an object for another pen.
+ *
+ * Replaces the transform card while it is on, because the mode locks moving,
+ * scaling and rotating — leaving the fields there would offer the one thing
+ * the mode has taken away.
+ */
+function paintCard(state, actions) {
+  const { paint } = state;
+  const placement = state.scene.placements.find((p) => p.id === paint.placementId);
+  if (!placement) return null;
+
+  const { layers } = state.scene;
+  const chosen = paint.selection.size;
+
+  const tool = (value, label, hint) =>
+    button({
+      label,
+      title: hint,
+      variant: paint.tool === value ? 'button--primary' : '',
+      onClick: () => actions.setPaintTool(value),
+    });
+
+  const target = el('select', {
+    class: 'field__input',
+    id: 'paint-target',
+    onchange: (e) => actions.setPaintTarget(e.target.value),
+  }, [
+    element('option', { value: '', selected: paint.target === '' }, 'This object\u2019s pen'),
+    ...layers.map((layer) =>
+      element('option', { value: layer.id, selected: paint.target === layer.id }, layer.name)),
+    element('option', { value: NEW_PEN, selected: paint.target === NEW_PEN }, 'New pen\u2026'),
+  ]);
+
+  return card('Paint', [
+    el('p', { class: 'hint' }, `Painting ${placement.name}. Moving is locked while this is on.`),
+
+    el('div', { class: 'button-row' }, [
+      tool('brush', 'Brush', 'Take the part of a stroke you drag across'),
+      tool('whole', 'Whole stroke', 'Take a whole stroke at a time'),
+    ]),
+
+    paint.tool === 'brush' && numberField({
+      label: 'Brush', value: paint.radiusPx, min: 1, step: 2, unit: 'px', id: 'paint-radius',
+      onCommit: (v) => actions.setPaintRadius(v),
+    }),
+
+    checkboxField({
+      label: 'Erase', checked: paint.erase === true, id: 'paint-erase',
+      onChange: (v) => actions.setPaintErase(v),
+    }),
+
+    el('p', { class: 'hint' }, 'Drag to add. Hold Alt, or turn on Erase, to take back.'),
+
+    el('dl', { class: 'spec' }, [
+      el('dt', { class: 'spec__key' }, 'Selected'),
+      el('dd', { class: 'spec__value' },
+        chosen === 0 ? 'nothing yet' : `${chosen} stroke${chosen === 1 ? '' : 's'}`),
+    ]),
+
+    el('label', { class: 'field' }, [
+      el('span', { class: 'field__label' }, 'Pen'),
+      el('span', { class: 'field__control' }, [target]),
+    ]),
+
+    el('div', { class: 'button-row' }, [
+      button({
+        label: 'Add to pen',
+        variant: 'button--primary',
+        onClick: actions.assignPaintSelection,
+      }),
+      button({ label: 'Select all', onClick: actions.selectAllPaint }),
+      button({ label: 'Clear', onClick: actions.clearPaintSelection }),
+    ]),
+
+    el('div', { class: 'button-row' }, [
+      button({ label: 'Done', onClick: actions.endPaint }),
+    ]),
+  ].filter(Boolean));
 }
 
 /**
@@ -458,7 +549,7 @@ export function renderPanels(container, state, actions) {
   const cards = [
     objectsCard(state, actions),
     layersCard(state, actions),
-    transformCard(state, actions),
+    state.paint ? paintCard(state, actions) : transformCard(state, actions),
     fillCard(state, actions),
     paperCard(state, actions),
     viewCard(state, actions),
