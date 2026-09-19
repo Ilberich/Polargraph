@@ -115,6 +115,16 @@ export function parseGcode(source) {
 }
 
 /**
+ * How near a stroke's end must come to its start to count as closed.
+ *
+ * Coordinates arrive rounded to the writer's precision — three decimals by
+ * default — so an exact match cannot be expected. This is a tenth of a
+ * millimetre: far above that rounding, and far below any gap a person would
+ * have drawn on purpose.
+ */
+const CLOSE_TOLERANCE_MM = 0.1;
+
+/**
  * Group parsed gcode back into paths.
  *
  * A rapid starts a new stroke and a controlled move extends it, which is the
@@ -127,7 +137,27 @@ export function gcodeToPaths(source) {
   let current = null;
 
   const flush = () => {
-    if (current && current.points.length > 1) paths.push(current);
+    if (current && current.points.length > 1) {
+      const first = current.points[0];
+      const last = current.points[current.points.length - 1];
+
+      // A stroke that comes back to where it began is a closed shape, and
+      // saying so is what lets it be filled. Gcode has no equivalent of SVG's
+      // `Z`, so geometry is the only evidence there is.
+      // Four points at least: dropping the repeated one has to leave a shape
+      // with an inside, not a stroke doubled back along itself.
+      if (
+        current.points.length > 3 &&
+        Math.hypot(last.x - first.x, last.y - first.y) <= CLOSE_TOLERANCE_MM
+      ) {
+        // A closed path does not store its start point twice.
+        current.points.pop();
+        current.closed = true;
+      }
+
+      paths.push(current);
+    }
+
     current = null;
   };
 

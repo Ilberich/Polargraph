@@ -109,3 +109,44 @@ test('measure separates drawn from travelled distance', () => {
 test('a Z-only move covers no distance across the paper', () => {
   assert.equal(measureGcode('G1 Z-5').total, 0);
 });
+
+test('a stroke that returns to its start comes back closed', () => {
+  // Nothing imported from gcode could be filled otherwise: the fill tool works
+  // on closed shapes, and gcode has no `Z` to declare one.
+  const square = [
+    'G0 X0 Y0', 'G1 X10 Y0', 'G1 X10 Y10', 'G1 X0 Y10', 'G1 X0 Y0',
+  ].join('\n');
+
+  const [path] = gcodeToPaths(square);
+
+  assert.equal(path.closed, true);
+  assert.equal(path.points.length, 4, 'the start point is not stored twice');
+});
+
+test('a stroke that stops short stays open', () => {
+  const almost = ['G0 X0 Y0', 'G1 X10 Y0', 'G1 X10 Y10', 'G1 X0 Y10', 'G1 X0 Y1'].join('\n');
+  const [path] = gcodeToPaths(almost);
+
+  assert.equal(path.closed, false);
+  assert.equal(path.points.length, 5);
+});
+
+test('rounding in the file does not stop a shape closing', () => {
+  // Coordinates arrive at the writer's precision, so an exact match is not
+  // something a real file can offer.
+  const rounded = [
+    'G0 X0 Y0', 'G1 X10 Y0', 'G1 X10 Y10', 'G1 X0 Y10', 'G1 X0.002 Y-0.001',
+  ].join('\n');
+
+  assert.equal(gcodeToPaths(rounded)[0].closed, true);
+});
+
+test('a there-and-back stroke is not a closed shape', () => {
+  // It ends where it began, but there is no area between the two legs — and
+  // calling it closed would leave a two-point shape nothing could fill.
+  const doubled = ['G0 X0 Y0', 'G1 X10 Y0', 'G1 X0 Y0'].join('\n');
+  const [path] = gcodeToPaths(doubled);
+
+  assert.equal(path.closed, false);
+  assert.equal(path.points.length, 3);
+});

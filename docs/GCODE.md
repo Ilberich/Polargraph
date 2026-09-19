@@ -82,3 +82,21 @@ calibrated work area, stepper fault, user cancel, untrusted position.
 
 A job will not start at all unless position is trusted and a transform is
 locked in (see AD-3, AD-5).
+
+## Closed shapes on import
+
+Gcode has no equivalent of SVG's `Z`, so a shape's closure is not recorded
+anywhere in the file — the only evidence is geometry. A stroke whose last move
+comes back within 0.1 mm of where it started is read back as closed, and the
+repeated point is dropped. That tolerance is far above the writer's rounding
+(three decimals by default) and far below any gap a person would have drawn on
+purpose.
+
+It matters because the fill tool works on closed shapes. Without this, nothing
+imported from gcode could be filled, including gcode this app wrote itself.
+
+Winding direction is a different matter and is **not** preserved: the optimizer
+reverses strokes freely to cut travel. Anything depending on the direction a
+shape was drawn in — the nonzero fill rule, in practice — should not be trusted
+across an export. The even-odd rule, which the fill tool uses by default, does
+not care.

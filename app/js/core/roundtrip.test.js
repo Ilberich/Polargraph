@@ -37,8 +37,13 @@ function assertSameGeometry(original, recovered, tolerance = 0.002) {
   assert.equal(recovered.length, original.length, 'path count');
 
   original.forEach((path, i) => {
+    // Closure has to survive too, not only the points. Gcode has no `Z`, so a
+    // stroke that comes back to where it began is the only evidence there is —
+    // and without it nothing imported from gcode could ever be filled.
+    assert.equal(recovered[i].closed, path.closed, `path ${i} closed`);
+
     const expected = xyPolyline(expectedPoints(path));
-    const actual = xyPolyline(recovered[i].points);
+    const actual = xyPolyline(expectedPoints(recovered[i]));
 
     assert.equal(actual.length, expected.length, `path ${i} point count`);
 
