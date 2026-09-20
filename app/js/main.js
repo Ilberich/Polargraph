@@ -11,6 +11,8 @@
  */
 
 import { describeEnvironment, plotterUrl } from './core/env.js';
+import { createClient } from './core/machine/client.js';
+import { createConnection } from './core/machine/connection.js';
 import { importSvg } from './core/svg/import.js';
 import { gcodeToPaths } from './core/gcode/parser.js';
 import { writeGcode, writeLayeredGcode } from './core/gcode/writer.js';
@@ -88,6 +90,23 @@ const state = {
    * the drawing changes under it — only clamped, never rescaled.
    */
   playback: { seconds: 0, playing: false, speed: 20 },
+  /**
+   * The plotter, when there is one to talk to.
+   *
+   * `view` is whatever the connection last knew; everything else is what this
+   * page has chosen — which file, how far a jog goes — and does not come from
+   * the machine.
+   */
+  machine: {
+    env: { canReachPlotter: false, reason: null },
+    view: null,
+    files: [],
+    selectedFile: null,
+    jogStepMm: 10,
+    home: { motorSpacing: 900, dropFromMotorLine: 400 },
+    busy: null,
+    error: null,
+  },
   settings: { ...DEFAULT_SETTINGS },
   status: '',
   /**
@@ -407,6 +426,79 @@ function stopPlayback() {
 
   cancelAnimationFrame(playbackFrame);
   playbackFrame = null;
+}
+
+// --------------------------------------------------------------- plotter --
+
+let connection = null;
+
+function setMachine(changes) {
+  setState({ machine: { ...state.machine, ...changes } });
+}
+
+/**
+ * Do something to the plotter, saying so while it happens.
+ *
+ * Every control endpoint answers with a status, which the connection folds
+ * straight back in — so a button changes what the panel says without waiting
+ * for the next poll.
+ */
+async function machineDo(label, action) {
+  if (!connection) return null;
+
+  setMachine({ busy: label, error: null });
+  const result = await connection.command(action);
+
+  setMachine({
+    busy: null,
+    view: connection.view(),
+    error: result.ok ? null : result.error.message,
+  });
+
+  return result.ok ? result.status : null;
+}
+
+async function refreshFiles() {
+  if (!connection) return;
+
+  const result = await connection.command((client) => client.listFiles());
+  if (!result.ok) return;
+
+  const files = result.status?.files ?? [];
+  const selected = files.some((f) => f.name === state.machine.selectedFile)
+    ? state.machine.selectedFile
+    : files[files.length - 1]?.name ?? null;
+
+  setMachine({ files, selectedFile: selected });
+}
+
+/** A name for what is on the canvas, so the card is not a list of untitled. */
+function jobFileName() {
+  const first = state.scene.placements[0];
+  const base = (first?.name ?? 'plot').replace(/\.[^.]+$/, '').slice(0, 40);
+  const safe = base.replace(/[^A-Za-z0-9-_ ]/g, '-').trim() || 'plot';
+
+  return `${safe}.gcode`;
+}
+
+function startConnection() {
+  const env = describeEnvironment(window.location);
+  setMachine({ env });
+
+  if (!env.canReachPlotter) return;
+
+  connection = createConnection({
+    client: createClient({ fetch: window.fetch.bind(window), base: env.apiBase }),
+    onChange: (view) => {
+      const appeared = !state.machine.view && view.connection === 'connected';
+      setMachine({ view });
+
+      // A plotter that has just appeared has files this page knows nothing of.
+      if (appeared) refreshFiles();
+    },
+  });
+
+  connection.start();
 }
 
 // ----------------------------------------------------------- canvas tools --
@@ -759,6 +851,119 @@ const actions = {
     scheduleAnalysis();
   },
 
+  // --- the plotter ---
+
+  setHome(changes) {
+    setMachine({ home: { ...state.machine.home, ...changes } });
+  },
+
+  setJogStep(jogStepMm) {
+    setMachine({ jogStepMm: Math.max(0.1, jogStepMm) });
+  },
+
+  selectMachineFile(selectedFile) {
+    setMachine({ selectedFile: selectedFile || null });
+  },
+
+  async machineRetry() {
+    if (!connection) return;
+
+    setMachine({ busy: 'Looking for the plotter\u2026' });
+    const view = await connection.poll();
+
+    setMachine({ busy: null, view });
+    if (view.connection === 'connected') refreshFiles();
+  },
+
+  /**
+   * Tell the plotter where it is.
+   *
+   * The paper size goes with it, because the seed is what ties the app's
+   * millimetres to this machine's: the gondola is parked at the centre of the
+   * sheet, and that point means nothing without knowing how big the sheet is.
+   */
+  machineHome() {
+    const { home } = state.machine;
+    const { widthMm, heightMm } = state.scene.paper;
+
+    return machineDo('Setting home\u2026', (client) => client.seed({
+      reference: 'center',
+      motorSpacing: home.motorSpacing,
+      dropFromMotorLine: home.dropFromMotorLine,
+      paperSize: { width: widthMm, height: heightMm },
+    }));
+  },
+
+  machineJog(dx, dy) {
+    return machineDo('Moving\u2026', (client) =>
+      client.jog(dx, dy, state.settings.travelFeedRate));
+  },
+
+  /** Build the job this page would export, and put it on the card. */
+  async machineSend() {
+    const job = buildJob();
+
+    if (!job) {
+      setMachine({ error: 'There is nothing on the paper to send.' });
+      return;
+    }
+
+    const name = jobFileName();
+    const size = Math.round(job.gcode.length / 1024);
+
+    const result = await machineDo(
+      `Sending ${name} (${size} KB)\u2026`,
+      (client) => client.upload(name, job.gcode)
+    );
+
+    if (result) {
+      setMachine({ selectedFile: name });
+      await refreshFiles();
+      setStatus(`Sent ${name} to the plotter.`);
+    }
+  },
+
+  async machineStart() {
+    const file = state.machine.selectedFile;
+
+    if (!file) {
+      setMachine({ error: 'Choose a file on the plotter first.' });
+      return;
+    }
+
+    await machineDo('Starting\u2026', (client) => client.start(file, {
+      motorSpacing: state.machine.home.motorSpacing,
+      paperSize: {
+        width: state.scene.paper.widthMm,
+        height: state.scene.paper.heightMm,
+      },
+      margins: state.scene.paper.margins,
+      maxSpeed: state.settings.feedRate,
+      acceleration: state.settings.acceleration,
+      penLift: state.settings.penLift,
+    }));
+  },
+
+  machinePause() {
+    return machineDo('Pausing\u2026', (client) => client.pause());
+  },
+
+  machineResume() {
+    return machineDo('Resuming\u2026', (client) => client.resume());
+  },
+
+  /** Stopping loses position, so it is worth a moment's thought first. */
+  async machineStop() {
+    if (!window.confirm('Stop the plot? The plotter will forget where it is.')) return;
+
+    await machineDo('Stopping\u2026', (client) => client.stop());
+  },
+
+  async machineDelete(name) {
+    await machineDo(`Deleting ${name}\u2026`, (client) => client.deleteFile(name));
+    await refreshFiles();
+  },
+
   async importSvgFiles() {
     const files = await pickFiles({ accept: '.svg,image/svg+xml' });
     if (files.length === 0) return;
@@ -888,6 +1093,7 @@ function main() {
 
   restore();
   renderEnvironment();
+  startConnection();
 
   document.getElementById('import-svg').onclick = actions.importSvgFiles;
   document.getElementById('import-gcode').onclick = actions.importGcodeFiles;

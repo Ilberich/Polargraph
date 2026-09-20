@@ -16,6 +16,7 @@ import {
 import { formatDuration } from '../core/gcode/estimate.js';
 import { el as element } from './dom.js';
 import { BUILD } from '../build.js';
+import { plotterUrl } from '../core/env.js';
 
 const mm = (value) => `${Math.round(value * 10) / 10}`;
 
@@ -631,6 +632,231 @@ const PANES = [
   { id: 'fill', label: 'Fill', pane: fillPane },
 ];
 
+/** A bar showing how far through the plot the machine is. */
+function progressBar(fraction) {
+  const percent = Math.round(Math.max(0, Math.min(1, fraction)) * 100);
+
+  return el('div', {
+    class: 'progress',
+    role: 'progressbar',
+    'aria-valuenow': String(percent),
+    'aria-valuemin': '0',
+    'aria-valuemax': '100',
+  }, [el('div', { class: 'progress__fill', style: { width: `${percent}%` } })]);
+}
+
+const clock = (seconds) => formatDuration(Math.max(0, Math.round(seconds)));
+
+/**
+ * The plotter.
+ *
+ * Only one of the two places this app is served from can talk to a machine
+ * (AD-1), so the first thing this card does is say which one it is. Offering a
+ * connection form on a page that could never connect would be worse than
+ * saying nothing.
+ */
+function machineCard(state, actions) {
+  const { env, view, busy } = state.machine;
+
+  if (!env.canReachPlotter) {
+    return card('Plotter', [
+      el('p', { class: 'hint' }, env.reason),
+      el('div', { class: 'button-row' }, [
+        el('a', { class: 'button', href: plotterUrl() }, 'Open from the plotter'),
+      ]),
+    ]);
+  }
+
+  if (!view || view.connection === 'offline') {
+    return card('Plotter', [
+      el('p', { class: 'empty' },
+        'No plotter answering at this address. Check it is powered and on the ' +
+        'same network.'),
+      el('div', { class: 'button-row' }, [
+        button({ label: busy ? 'Looking\u2026' : 'Try again', onClick: actions.machineRetry }),
+      ]),
+    ]);
+  }
+
+  return card('Plotter', [
+    view.stale && el('p', { class: 'hint' },
+      'The plotter has missed a poll. This is the last it said.'),
+
+    ...machineBody(state, actions),
+
+    busy && el('p', { class: 'hint' }, busy),
+    state.machine.error && el('div', { class: 'notice notice--warn' }, [
+      el('strong', { class: 'notice__title' }, 'The plotter refused that'),
+      el('span', {}, state.machine.error),
+    ]),
+  ].filter(Boolean));
+}
+
+function machineBody(state, actions) {
+  const { view } = state.machine;
+  const status = view.status;
+
+  if (!status.positionTrusted) return homingRows(state, actions);
+  if (status.job) return jobRows(state, actions, status);
+
+  return readyRows(state, actions, status);
+}
+
+/**
+ * Homing.
+ *
+ * A polargraph knows where it is only from its belt lengths, and it has no
+ * switches to find an edge with, so somebody has to say where it is once
+ * (AD-3). The flag is cleared on every boot, so this is the first thing after
+ * power on, every time.
+ */
+function homingRows(state, actions) {
+  const { home } = state.machine;
+
+  return [
+    el('p', { class: 'hint' },
+      'Park the gondola at the centre of the paper, on the centreline between ' +
+      'the motors, then set home. The plotter forgets where it is at every ' +
+      'power on \u2014 it has no switches to find an edge with.'),
+
+    el('div', { class: 'field-grid' }, [
+      numberField({
+        label: 'Motor spacing', value: home.motorSpacing, min: 100, step: 10,
+        unit: 'mm', id: 'machine-spacing',
+        onCommit: (v) => actions.setHome({ motorSpacing: v }),
+      }),
+      numberField({
+        label: 'Drop', value: home.dropFromMotorLine, min: 10, step: 10,
+        unit: 'mm', id: 'machine-drop',
+        onCommit: (v) => actions.setHome({ dropFromMotorLine: v }),
+      }),
+    ]),
+
+    el('div', { class: 'button-row' }, [
+      button({ label: 'Set home', variant: 'button--primary', onClick: actions.machineHome }),
+    ]),
+  ];
+}
+
+/** Jog and send, for a machine that knows where it is but is not plotting. */
+function readyRows(state, actions, status) {
+  const { files, selectedFile } = state.machine;
+  const step = state.machine.jogStepMm;
+
+  const chooser = el('select', {
+    class: 'field__input',
+    id: 'machine-file',
+    onchange: (e) => actions.selectMachineFile(e.target.value),
+  }, [
+    element('option', { value: '' }, files.length ? 'Choose a file' : 'Nothing sent yet'),
+    ...files.map((file) =>
+      element('option', { value: file.name, selected: selectedFile === file.name },
+        `${file.name} \u00b7 ${Math.round(file.bytes / 1024)} KB`)),
+  ]);
+
+  return [
+    positionRow(status),
+
+    el('div', { class: 'jog' }, [
+      button({ label: '\u2191', title: 'Up', onClick: () => actions.machineJog(0, -step) }),
+      button({ label: '\u2190', title: 'Left', onClick: () => actions.machineJog(-step, 0) }),
+      button({ label: '\u2192', title: 'Right', onClick: () => actions.machineJog(step, 0) }),
+      button({ label: '\u2193', title: 'Down', onClick: () => actions.machineJog(0, step) }),
+    ]),
+
+    numberField({
+      label: 'Jog step', value: step, min: 0.1, step: 1, unit: 'mm', id: 'machine-jog-step',
+      onCommit: actions.setJogStep,
+    }),
+
+    el('div', { class: 'button-row' }, [
+      button({ label: 'Send this drawing', onClick: actions.machineSend }),
+    ]),
+
+    el('label', { class: 'field' }, [
+      el('span', { class: 'field__label' }, 'On the plotter'),
+      el('span', { class: 'field__control' }, [chooser]),
+    ]),
+
+    el('div', { class: 'button-row' }, [
+      button({
+        label: 'Plot it',
+        variant: 'button--primary',
+        onClick: actions.machineStart,
+      }),
+      selectedFile && button({
+        label: 'Delete',
+        onClick: () => actions.machineDelete(selectedFile),
+      }),
+    ].filter(Boolean)),
+
+    !status.calibrated && el('div', { class: 'notice notice--warn' }, [
+      el('strong', { class: 'notice__title' }, 'Not calibrated'),
+      el('span', {}, 'The plotter will not start a job until its paper is ' +
+        'squared up. Calibration arrives in Phase 6.'),
+    ]),
+
+    storageRow(status),
+  ].filter(Boolean);
+}
+
+/** A plot in progress. */
+function jobRows(state, actions, status) {
+  const job = status.job;
+  const remaining = job.progress > 0.01
+    ? (job.elapsedSec / job.progress) - job.elapsedSec
+    : null;
+
+  return [
+    el('p', { class: 'hint' }, job.file),
+    progressBar(job.progress),
+
+    el('dl', { class: 'spec' }, [
+      el('dt', { class: 'spec__key' }, 'Progress'),
+      el('dd', { class: 'spec__value' },
+        `${Math.round(job.progress * 100)}% \u00b7 line ${job.line} of ${job.totalLines}`),
+      el('dt', { class: 'spec__key' }, 'Elapsed'),
+      el('dd', { class: 'spec__value' }, clock(job.elapsedSec)),
+      ...(remaining === null ? [] : [
+        el('dt', { class: 'spec__key' }, 'Remaining'),
+        // Measured from what this plot has actually managed so far, rather
+        // than from the estimate: the machine knows better than the model.
+        el('dd', { class: 'spec__value' }, clock(remaining)),
+      ]),
+    ]),
+
+    positionRow(status),
+
+    el('div', { class: 'button-row' }, [
+      status.state === 'paused'
+        ? button({ label: 'Resume', variant: 'button--primary', onClick: actions.machineResume })
+        : button({ label: 'Pause', onClick: actions.machinePause }),
+      button({ label: 'Stop', onClick: actions.machineStop }),
+    ]),
+
+    status.state === 'paused' && el('p', { class: 'hint' },
+      'Paused. The button on the machine resumes it too.'),
+  ].filter(Boolean);
+}
+
+function positionRow(status) {
+  return el('dl', { class: 'spec' }, [
+    el('dt', { class: 'spec__key' }, 'Position'),
+    el('dd', { class: 'spec__value' },
+      `${mm(status.position.x)}, ${mm(status.position.y)} mm`),
+  ]);
+}
+
+function storageRow(status) {
+  const { usedBytes, totalBytes } = status.storage;
+
+  return el('dl', { class: 'spec' }, [
+    el('dt', { class: 'spec__key' }, 'Card'),
+    el('dd', { class: 'spec__value' },
+      `${(usedBytes / 1024 ** 2).toFixed(1)} of ${(totalBytes / 1024 ** 3).toFixed(1)} GB used`),
+  ]);
+}
+
 /** Speeds worth watching a plot back at. A two-hour job at 1x is not one. */
 const PLAYBACK_SPEEDS = [1, 5, 20, 100];
 
@@ -699,7 +925,14 @@ export function renderPanels(container, state, actions) {
 
   const active = PANES.find((p) => p.id === state.tab) ?? PANES[0];
 
+  // A plotter you are actually using belongs at the top; the note explaining
+  // that this copy of the app cannot reach one is a footnote, and sits like
+  // one.
+  const plotter = machineCard(state, actions);
+  const connected = state.machine.env.canReachPlotter;
+
   const cards = [
+    connected ? plotter : null,
     tabbedCard({
       tabs: PANES,
       active: active.id,
@@ -711,6 +944,7 @@ export function renderPanels(container, state, actions) {
     viewCard(state, actions),
     outputCard(state, actions),
     previewCard(state, actions),
+    connected ? null : plotter,
   ].filter(Boolean);
 
   container.append(...cards);

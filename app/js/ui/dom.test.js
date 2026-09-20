@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { isTextEntry } from './dom.js';
+import { isTextEntry, el } from './dom.js';
 
 // Plain objects rather than real elements: the rule is about tag and type, so
 // it can be checked without a DOM.
@@ -44,4 +44,30 @@ test('a missing element is not text entry', () => {
 
 test('input type matching ignores case', () => {
   assert.equal(isTextEntry({ tagName: 'INPUT', type: 'CHECKBOX' }), false);
+});
+
+test('hyphenated names are set as attributes, not properties', () => {
+  // Assigning `aria-selected` as a property creates a field nothing reads, and
+  // the element looks right in this file while telling a screen reader nothing.
+  const seen = new Map();
+  const node = {
+    dataset: {},
+    style: {},
+    setAttribute: (key, value) => seen.set(key, value),
+    append: () => {},
+  };
+
+  const originalDocument = globalThis.document;
+  globalThis.document = { createElement: () => node, createTextNode: () => ({}) };
+
+  try {
+    el('div', { role: 'progressbar', 'aria-valuenow': '40', 'data-x': 'y' });
+  } finally {
+    globalThis.document = originalDocument;
+  }
+
+  assert.equal(seen.get('aria-valuenow'), '40');
+  assert.equal(seen.get('data-x'), 'y');
+  assert.equal(node.role, 'progressbar', 'a plain name is still a property');
+  assert.equal(node['aria-valuenow'], undefined);
 });

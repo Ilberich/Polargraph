@@ -315,12 +315,37 @@ the same code drives real motors.
   being asked.
 - **Deploy script** (`tools/deploy.py`): copies the bundle to `/www` on the
   card and makes the gcode directory. 39 files, 252 KB; tests stay behind.
-- App side: connection manager, machine control panels, progress tracker,
-  graceful fallback to standalone
-- Pages build detects HTTPS and directs the user to their plotter's local address
+- **App side:** done. A Plotter card that is the first thing in the panel when
+  there is a machine to talk to, and a footnote at the bottom when there is not.
+  - **Homing first.** Position trust is cleared at every boot (AD-5) and a
+    polargraph has no switches to find an edge with, so the card opens on
+    "park the gondola at the centre of the paper and set home". The paper size
+    goes up with the seed, because the reference point means nothing without
+    it.
+  - Jog, send the current drawing, choose a file already on the card, plot,
+    pause, resume, stop. Stopping asks first: it loses position.
+  - Progress is measured against the whole file, and time remaining is
+    extrapolated from what this plot has actually managed rather than from the
+    estimate — the machine knows better than the model.
+  - Refusals are shown with the firmware's own message, so "calibrate first"
+    reads as itself rather than as a failure.
+- **Connection manager:** one missed poll is not a disconnection. WiFi drops a
+  packet and a Pico is busy writing to the card; going offline on the first
+  failure would have the panel flickering through a plot. It takes three, and
+  until then the last known status stands and says it is stale.
+  - Polling slows when nothing is happening: a second while plotting, five when
+    idle. The Pico has better things to do with its radio.
+  - Every control endpoint answers with a status, which folds straight back in,
+    so a button does something visible without waiting for the next poll.
+  - A request that hangs fails on a deadline. A plotter that has lost power
+    does not refuse connections, it goes quiet — and without one the poll would
+    never return and the app would sit there looking connected.
+- **Pages build** detects HTTPS and directs the user to their plotter's local
+  address, rather than offering a connection form that could only fail.
 
 **Done when:** the app served from the Pico uploads a job and runs it, and the
-Pages build degrades cleanly.
+Pages build degrades cleanly. *Driven end to end against a stub plotter: home,
+jog, send, refusal, plot, pause, and the machine vanishing.*
 
 ---
 

@@ -7,6 +7,11 @@
  * and event handlers work the way they do on the element itself. `class`,
  * `dataset` and `style` are special-cased because they are what the shorthand
  * is actually for.
+ *
+ * Hyphenated names are the exception and must be set as attributes: assigning
+ * `aria-selected` as a property creates a field nothing reads, and the element
+ * ends up looking correct in the markup this file produces while telling a
+ * screen reader nothing at all.
  */
 export function el(tag, props = {}, children = []) {
   const node = document.createElement(tag);
@@ -17,6 +22,7 @@ export function el(tag, props = {}, children = []) {
     if (key === 'class') node.className = value;
     else if (key === 'dataset') Object.assign(node.dataset, value);
     else if (key === 'style') Object.assign(node.style, value);
+    else if (key.includes('-')) node.setAttribute(key, value);
     else node[key] = value;
   }
 
