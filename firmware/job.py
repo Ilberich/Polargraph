@@ -168,6 +168,7 @@ class Job:
         steps are lost and position can no longer be trusted.
         """
         self.stepper.abort()
+        self.close()
         self.position_trusted = False
         self.error = reason
         self._record("%s; position is no longer trusted" % reason)
@@ -326,6 +327,17 @@ class Job:
         self._planner.flush()
         self.stepper.backend.wait()
 
+    def close(self):
+        """Let go of the file.
+
+        A Pico has a handful of file descriptors, and a job abandoned without
+        closing its own keeps one until the board is reset. Called on every way
+        out: finishing, stopping, and faulting.
+        """
+        closer = getattr(self._lines, "close", None)
+        if closer is not None:
+            closer()
+
     def _finish(self):
         self._settle()
 
@@ -333,4 +345,5 @@ class Job:
             self.pen.park()
 
         self.stepper.enable(False)
+        self.close()
         self.state = DONE

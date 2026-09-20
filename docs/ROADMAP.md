@@ -349,17 +349,45 @@ jog, send, refusal, plot, pause, and the machine vanishing.*
 
 ---
 
-## Phase 6 — Calibration
+## Phase 6 — Calibration — **complete**
 
-- Seed routine: park at reference point, confirm, derive belt lengths (AD-3)
-- Jog controls with live position
-- Three-corner capture → **least-squares similarity fit** with residual reported
-  as a quality metric (AD-7)
-- Fourth-corner verification; reject restarts from corner 1
-- Transform lock-in for the job
-- Persistence with `positionTrusted` gating (AD-5)
+- **Seed routine** (AD-3): done in Phase 5. Park at the centre of the sheet,
+  confirm, and the belt lengths follow from the geometry.
+- **Jog with live position:** done.
+- **Three-corner capture → least-squares similarity fit** (AD-7): done. The
+  closed form, so no iteration and nothing to converge oddly on a
+  microcontroller: line the two sets up on their centroids and the best
+  rotation falls out of one cross term against one dot term.
+  - Four degrees of freedom, not six. Shear and non-uniform scale describe
+    nothing a rigid sheet can do; all they could absorb is the user's aim
+    error, fitting three clicks perfectly and the paper badly. Tested: however
+    sloppy the captures, what comes out is always a rotation times a scale.
+  - The residual is RMS in millimetres, so one sloppy corner raises it without
+    dominating it. The app warns above 2 mm.
+  - A capture that does not describe a sheet is refused. Recording three
+    corners *without driving to them* is the likeliest mistake there is, and
+    least squares is perfectly happy with it — collapse the paper to a point
+    and the residual is zero, because it has indeed fitted what it was given.
+    Both point sets are checked for spread, and an implausible scale is
+    refused too.
+- **Fourth-corner verification:** done. The gondola drives to the corner nobody
+  visited, through the *candidate* transform — that is the question being
+  asked. Taking it from the paper's own rectangle rather than from the
+  measurements matters: deriving it from the captures would be asking the fit
+  about itself.
+  - Rejecting restarts from corner zero. If the fourth corner is wrong then one
+    of the three is wrong, and there is no way to know which.
+- **Transform lock-in:** done, and it *replaces* the paper origin rather than
+  correcting it. Calibration measures the whole relationship between paper and
+  machine, so keeping the estimate to add to the measurement would reintroduce
+  what was just measured away.
+- **`positionTrusted` gating** (AD-5): done. Re-homing discards a locked
+  transform, because the machine's idea of itself has changed and a transform
+  measured against the old one describes nothing.
 
-**Done when:** a calibrated job lands on paper where the preview said it would.
+**Done:** a calibrated job lands where the paper is — asserted against a sheet
+taped 1.5° out and 20 mm over, and driven end to end in a browser against the
+real firmware.
 
 ---
 

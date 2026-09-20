@@ -14,6 +14,7 @@ import time
 
 from motion import kinematics as kin
 from motion.planner import Limits
+from calibration import Calibration, CalibrationError
 from job import Job, JobError, IDLE, RUNNING, PAUSED, DONE, ERROR
 
 
@@ -54,9 +55,10 @@ class Controller:
         #: not offer to reuse a stored calibration while it is false.
         self.position_trusted = False
 
-        #: Set by Phase 6. Until then a machine is uncalibrated and will not
-        #: start a job, which is the contract in docs/GCODE.md.
-        self.transform = None
+        #: Where the paper really is. Nothing plots until this is locked in,
+        #: which is the contract in docs/GCODE.md.
+        self.calibration = Calibration(
+            JOB_DEFAULTS["paperSize"]["width"], JOB_DEFAULTS["paperSize"]["height"])
 
         self.geometry = kin.Geometry(
             JOB_DEFAULTS["motorSpacing"],
@@ -79,14 +81,21 @@ class Controller:
     # --- state --------------------------------------------------------------
 
     @property
+    def transform(self):
+        return self.calibration.transform
+
+    @property
     def calibrated(self):
         return self.transform is not None
 
     def state(self):
-        if self.job is None:
-            return IDLE if self.last_error is None else ERROR
+        if self.job is not None:
+            return self.job.state
 
-        return self.job.state
+        if self.calibration.state not in (Calibration.IDLE, Calibration.LOCKED):
+            return "calibrating"
+
+        return IDLE if self.last_error is None else ERROR
 
     def status(self):
         """Everything the app needs to rebuild its UI from scratch."""
@@ -101,6 +110,7 @@ class Controller:
             "position": {"x": x, "y": y, "z": self.pen.position_mm()},
             "beltLengths": {"left": left, "right": right},
             "job": self._job_status(),
+            "calibration": self._calibration_status(),
             "error": self._error_status(),
             "penLift": self.pen.can_lift,
             "storage": self.store.usage(),
@@ -126,6 +136,23 @@ class Controller:
             "progress": min(1.0, progress),
             "startedAt": self.started_at,
             "elapsedSec": int(self._clock() - self.started_at) if self.started_at else 0,
+        }
+
+    def _calibration_status(self):
+        """Enough to rebuild the calibration UI after a closed tab.
+
+        Which corners are in and what the last fit was worth — the app should
+        not have to remember a sequence the machine is already in the middle
+        of.
+        """
+        progress = self.calibration.progress()
+        result = self.calibration.result
+
+        return {
+            **progress,
+            "residualMm": result["residualMm"] if result else None,
+            "rotationDeg": result["rotationDeg"] if result else None,
+            "scale": result["scale"] if result else None,
         }
 
     def _error_status(self):
@@ -171,6 +198,10 @@ class Controller:
         self._resting_x = size["width"] / 2
         self._resting_y = size["height"] / 2
 
+        # Re-homing means the machine's idea of itself has changed, so a
+        # transform measured against the old one no longer describes anything.
+        self.calibration = Calibration(size["width"], size["height"])
+
         self.position_trusted = True
         self.last_error = None
 
@@ -211,6 +242,69 @@ class Controller:
         self._resting_y = y
 
         return self.status()
+
+    # --- calibration --------------------------------------------------------
+
+    def capture_corner(self, index, paper_point):
+        """Record where the gondola is standing as a corner of the paper."""
+        if not self.position_trusted:
+            raise ControllerError(
+                "untrusted_position", "seed the position before calibrating")
+
+        machine = self.geometry.to_machine(self._resting_x, self._resting_y)
+
+        return self.calibration.capture(
+            index, (paper_point["x"], paper_point["y"]), machine)
+
+    def solve_calibration(self):
+        return self.calibration.solve()
+
+    def verify_calibration(self):
+        """Drive to the corner nobody visited, so the user can judge the fit."""
+        target = self.calibration.verify()
+        corner = target["paperPoint"]
+
+        # Moved through the *candidate* transform rather than the locked one,
+        # which is the whole question being asked: does this fit put the pen
+        # where the paper actually is?
+        candidate = self.geometry.with_transform(self.calibration.result["transform"])
+        machine = candidate.to_machine(corner["x"], corner["y"])
+
+        if not kin.reachable(candidate, machine[0], machine[1]):
+            raise ControllerError(
+                "unreachable",
+                "the fourth corner lands outside what the machine can reach",
+                400,
+            )
+
+        self._move_to_machine(candidate, machine)
+
+        return target
+
+    def confirm_calibration(self, accepted):
+        result = self.calibration.confirm(accepted)
+
+        if accepted:
+            self.geometry = self.geometry.with_transform(self.transform)
+
+        return result
+
+    def _move_to_machine(self, geometry, machine_point):
+        """Drive the gondola somewhere, without going through paper space."""
+        paper = geometry.to_paper(machine_point[0], machine_point[1])
+        limits = self._limits({})
+
+        moves = ["G90", "G0 X%.4f Y%.4f" % (paper[0], paper[1])]
+        start = geometry.to_machine(self._resting_x, self._resting_y)
+
+        move = Job(geometry, limits, self.stepper, moves, self.pen, start[0], start[1])
+        move.start()
+        move.run()
+
+        if move.state == ERROR:
+            raise ControllerError("move_failed", move.error)
+
+        self._resting_x, self._resting_y = paper
 
     # --- jobs ---------------------------------------------------------------
 
@@ -272,6 +366,9 @@ class Controller:
             self.geometry.paper_origin_y_mm,
             size["width"],
             size["height"],
+            # Every move in the job goes through the calibration, because
+            # to_machine is the one place paper becomes millimetres of belt.
+            self.transform,
         )
 
     def _count_lines(self, name):
@@ -304,6 +401,7 @@ class Controller:
         """Abandon the job. Steps are lost, so position is no longer trusted."""
         job = self._require_job()
         job.stop("stopped by the app")
+        job.close()
 
         self.last_error = job.error
         self.position_trusted = False

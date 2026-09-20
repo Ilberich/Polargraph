@@ -1,3 +1,4 @@
+import math
 import os
 import shutil
 import tempfile
@@ -8,6 +9,16 @@ from controller import Controller
 from motion.pen import NullPen
 from motion.stepper import Stepper, RecordingBackend
 from server.api import Api
+from calibration import corners_of
+from motion.kinematics import apply_transform
+
+
+def _skewed_truth():
+    """A sheet taped up turned and shifted, in machine coordinates."""
+    angle = math.radians(1.5)
+    cos, sin = math.cos(angle), math.sin(angle)
+
+    return [cos, -sin, 345.0 + 20.0, sin, cos, 251.5 + 6.0]
 from store import Store
 
 
@@ -27,6 +38,7 @@ class ApiCase(unittest.TestCase):
             clock=lambda: 1758240000,
         )
         self.api = Api(self.controller)
+        self.truth = _skewed_truth()
 
     def tearDown(self):
         shutil.rmtree(self.directory, ignore_errors=True)
@@ -37,13 +49,51 @@ class ApiCase(unittest.TestCase):
         return self.api.handle("POST", "/api/files/" + name,
                                stream=[text.encode()])
 
+    def seed(self, width=210, height=297):
+        return self.api.handle(
+            "POST", "/api/position/seed",
+            body={"motorSpacing": 900, "dropFromMotorLine": 400,
+                  "paperSize": {"width": width, "height": height}},
+        )
+
+    def calibrate(self, width=210, height=297, skew=False):
+        """Drive the real capture-solve-verify-confirm sequence.
+
+        With `skew`, the captures are told the sheet is where a taped-up sheet
+        really would be: turned a degree and a half and shifted.
+        """
+        for index, (x, y) in enumerate(corners_of(width, height)[:3]):
+            at = self.api.handle("GET", "/api/status").body["position"]
+            self.api.handle("POST", "/api/jog",
+                            body={"dx": x - at["x"], "dy": y - at["y"]})
+
+            if skew:
+                # Pretend the user drove to where the real sheet's corner is.
+                machine = apply_transform(self.truth, x, y)
+                self.controller.calibration.capture(index, (x, y), machine)
+            else:
+                self.api.handle("POST", "/api/calibration/corner",
+                                body={"index": index, "paperPoint": {"x": x, "y": y}})
+
+        self.api.handle("POST", "/api/calibration/solve")
+        self.api.handle("POST", "/api/calibration/verify")
+
+        return self.api.handle("POST", "/api/calibration/confirm",
+                               body={"accepted": True})
+
+    def calibrate_capture_only(self, width=210, height=297):
+        for index, (x, y) in enumerate(corners_of(width, height)[:3]):
+            at = self.api.handle("GET", "/api/status").body["position"]
+            self.api.handle("POST", "/api/jog",
+                            body={"dx": x - at["x"], "dy": y - at["y"]})
+            self.api.handle("POST", "/api/calibration/corner",
+                            body={"index": index, "paperPoint": {"x": x, "y": y}})
+
     def ready(self):
         """A seeded, calibrated machine with a file on the card."""
         self.upload()
-        self.api.handle("POST", "/api/position/seed",
-                        body={"motorSpacing": 900, "dropFromMotorLine": 400,
-                              "paperSize": {"width": 210, "height": 297}})
-        self.controller.transform = [1, 0, 0, 0, 1, 0]
+        self.seed()
+        self.calibrate()
 
 
 class Status(ApiCase):
@@ -199,8 +249,7 @@ class Jobs(ApiCase):
 
     def test_a_job_will_not_start_uncalibrated(self):
         self.upload()
-        self.api.handle("POST", "/api/position/seed",
-                        body={"motorSpacing": 900, "dropFromMotorLine": 400})
+        self.seed()
 
         response = self.api.handle("POST", "/api/job/start", body={"file": "plot.gcode"})
         self.assertEqual(response.body["error"], "not_calibrated")
@@ -298,13 +347,8 @@ class Routing(ApiCase):
     def test_a_real_action_with_the_wrong_method_says_which_is_allowed(self):
         self.assertEqual(self.api.handle("GET", "/api/job/pause").status, 405)
 
-    def test_calibration_says_it_is_not_built_yet_rather_than_missing(self):
-        # Documented in docs/API.md, so a 404 would be misleading about
-        # whether the endpoint exists. It does; it is Phase 6.
-        response = self.api.handle("POST", "/api/calibration/solve")
-
-        self.assertEqual(response.status, 501)
-        self.assertEqual(response.body["error"], "not_implemented")
+    def test_an_unknown_calibration_step_is_a_404(self):
+        self.assertEqual(self.api.handle("POST", "/api/calibration/guess").status, 404)
 
     def test_every_failure_carries_a_slug_and_a_message(self):
         for response in (self.api.handle("GET", "/api/nope"),
@@ -316,3 +360,108 @@ class Routing(ApiCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Calibrating(ApiCase):
+    """docs/API.md: a short state machine the app drives one step at a time."""
+
+    def test_calibrating_needs_a_position_to_calibrate_from(self):
+        response = self.api.handle("POST", "/api/calibration/corner",
+                                   body={"index": 0, "paperPoint": {"x": 0, "y": 0}})
+
+        self.assertEqual(response.status, 409)
+        self.assertEqual(response.body["error"], "untrusted_position")
+
+    def test_capturing_reports_how_far_along_it_is(self):
+        self.seed()
+        body = self.api.handle("POST", "/api/calibration/corner",
+                               body={"index": 0, "paperPoint": {"x": 0, "y": 0}}).body
+
+        self.assertEqual(body, {"state": "capturing", "captured": [0], "needed": 3})
+
+    def test_the_machine_says_it_is_calibrating(self):
+        self.seed()
+        self.api.handle("POST", "/api/calibration/corner",
+                        body={"index": 0, "paperPoint": {"x": 0, "y": 0}})
+
+        self.assertEqual(self.api.handle("GET", "/api/status").body["state"], "calibrating")
+
+    def test_solving_reports_the_quality_of_the_fit(self):
+        # AD-7: a bad calibration is caught with a number, before anybody walks
+        # to the machine for the fourth-corner check.
+        self.seed()
+        self.calibrate_capture_only()
+
+        body = self.api.handle("POST", "/api/calibration/solve").body
+
+        for key in ("transform", "residualMm", "rotationDeg", "scale"):
+            self.assertIn(key, body)
+
+        self.assertLess(body["residualMm"], 0.5)
+
+    def test_verifying_drives_to_the_unvisited_corner(self):
+        self.seed()
+        self.calibrate_capture_only()
+        self.api.handle("POST", "/api/calibration/solve")
+
+        response = self.api.handle("POST", "/api/calibration/verify")
+
+        self.assertEqual(response.status, 202, "on its way; go and look")
+        self.assertEqual(response.body["paperPoint"], {"x": 0.0, "y": 297.0})
+
+        at = self.api.handle("GET", "/api/status").body["position"]
+        self.assertAlmostEqual(at["x"], 0.0, delta=0.05)
+        self.assertAlmostEqual(at["y"], 297.0, delta=0.05)
+
+    def test_rejecting_starts_again_from_the_first_corner(self):
+        self.seed()
+        self.calibrate_capture_only()
+        self.api.handle("POST", "/api/calibration/solve")
+        self.api.handle("POST", "/api/calibration/verify")
+
+        body = self.api.handle("POST", "/api/calibration/confirm",
+                               body={"accepted": False}).body
+
+        self.assertIsNone(body["transform"])
+        self.assertFalse(self.api.handle("GET", "/api/status").body["calibrated"])
+        self.assertEqual(self.controller.calibration.progress()["captured"], [])
+
+    def test_accepting_locks_it_in_for_the_jobs_that_follow(self):
+        self.seed()
+        self.calibrate()
+
+        self.assertTrue(self.api.handle("GET", "/api/status").body["calibrated"])
+
+    def test_re_homing_throws_a_calibration_away(self):
+        # The machine's idea of itself has changed, so a transform measured
+        # against the old one no longer describes anything.
+        self.seed()
+        self.calibrate()
+        self.assertTrue(self.controller.calibrated)
+
+        self.seed()
+        self.assertFalse(self.controller.calibrated)
+
+    def test_a_calibrated_job_lands_where_the_paper_is(self):
+        # Phase 6's exit criterion. The sheet is taped up 1.5 degrees out and
+        # 20mm over; after calibration a move to a paper coordinate puts the
+        # gondola where that coordinate really is.
+        self.upload("square.gcode", "G90\nG0 X0 Y0 F3000\nG1 X210 Y0 F1200\nM30\n")
+        self.seed()
+        self.calibrate(skew=True)
+
+        self.api.handle("POST", "/api/job/start", body={"file": "square.gcode"})
+        while self.controller.tick():
+            pass
+
+        # In paper space the job finished at the sheet's top-right corner...
+        at = self.api.handle("GET", "/api/status").body["position"]
+        self.assertAlmostEqual(at["x"], 210, delta=0.1)
+        self.assertAlmostEqual(at["y"], 0, delta=0.1)
+
+        # ...and in machine space, where the skewed sheet's corner actually is.
+        wanted = apply_transform(self.truth, 210.0, 0.0)
+        got = self.controller.geometry.to_machine(at["x"], at["y"])
+
+        self.assertAlmostEqual(got[0], wanted[0], delta=0.1)
+        self.assertAlmostEqual(got[1], wanted[1], delta=0.1)

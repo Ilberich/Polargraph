@@ -698,8 +698,121 @@ function machineBody(state, actions) {
 
   if (!status.positionTrusted) return homingRows(state, actions);
   if (status.job) return jobRows(state, actions, status);
+  if (!status.calibrated) return calibrationRows(state, actions, status);
 
   return readyRows(state, actions, status);
+}
+
+/** The corners of the sheet, in the order the app asks for them. */
+const CORNER_NAMES = ['top left', 'top right', 'bottom right'];
+
+/** Above this the fit is worth a second look before plotting on good paper. */
+const WARN_RESIDUAL_MM = 2;
+
+/**
+ * Calibration: telling the machine where the paper really is.
+ *
+ * Nobody tapes a sheet up square. The user drives to three corners, and what
+ * comes out is how far out the sheet is and by how much — with the residual
+ * said plainly, because a calibration that will plot crooked should be caught
+ * here rather than on the paper.
+ */
+function calibrationRows(state, actions, status) {
+  const calibration = status.calibration ?? { state: 'idle', captured: [], needed: 3 };
+  const step = state.machine.jogStepMm;
+
+  if (calibration.state === 'verifying') {
+    return [
+      el('p', { class: 'hint' },
+        'The gondola has gone to the corner it was never shown. If the pen is ' +
+        'over that corner of the paper, the calibration is good.'),
+      fitRows(calibration),
+      el('div', { class: 'button-row' }, [
+        button({
+          label: 'That is the corner',
+          variant: 'button--primary',
+          onClick: () => actions.confirmCalibration(true),
+        }),
+        button({ label: 'Start over', onClick: () => actions.confirmCalibration(false) }),
+      ]),
+    ];
+  }
+
+  const captured = calibration.captured ?? [];
+  const next = [0, 1, 2].find((i) => !captured.includes(i));
+
+  return [
+    el('p', { class: 'hint' },
+      next === undefined
+        ? 'All three corners are in. Work out where the paper is.'
+        : `Drive the pen to the ${CORNER_NAMES[next]} corner of the paper, then ` +
+          'record it. Three corners is one more than the fit needs, and the ' +
+          'spare is what measures how good it is.'),
+
+    positionRow(status),
+
+    el('div', { class: 'jog' }, [
+      button({ label: '\u2191', title: 'Up', onClick: () => actions.machineJog(0, -step) }),
+      button({ label: '\u2190', title: 'Left', onClick: () => actions.machineJog(-step, 0) }),
+      button({ label: '\u2192', title: 'Right', onClick: () => actions.machineJog(step, 0) }),
+      button({ label: '\u2193', title: 'Down', onClick: () => actions.machineJog(0, step) }),
+    ]),
+
+    numberField({
+      label: 'Jog step', value: step, min: 0.1, step: 1, unit: 'mm',
+      id: 'machine-jog-step',
+      onCommit: actions.setJogStep,
+    }),
+
+    el('dl', { class: 'spec' }, [
+      el('dt', { class: 'spec__key' }, 'Corners'),
+      el('dd', { class: 'spec__value' },
+        `${captured.length} of ${calibration.needed}` +
+        (captured.length ? ` \u00b7 ${captured.map((i) => CORNER_NAMES[i]).join(', ')}` : '')),
+    ]),
+
+    calibration.residualMm != null && fitRows(calibration),
+
+    el('div', { class: 'button-row' }, [
+      next !== undefined && button({
+        label: `Record ${CORNER_NAMES[next]}`,
+        variant: 'button--primary',
+        onClick: () => actions.captureCorner(next),
+      }),
+      captured.length === calibration.needed && button({
+        label: calibration.residualMm == null ? 'Work it out' : 'Check the last corner',
+        variant: 'button--primary',
+        onClick: calibration.residualMm == null
+          ? actions.solveCalibration
+          : actions.verifyCalibration,
+      }),
+    ].filter(Boolean)),
+  ].filter(Boolean);
+}
+
+/** What the fit came out as, and whether it is worth trusting. */
+function fitRows(calibration) {
+  const off = calibration.residualMm;
+
+  return el('div', { class: 'stack' }, [
+    el('dl', { class: 'spec' }, [
+      el('dt', { class: 'spec__key' }, 'Corners off by'),
+      el('dd', {
+        class: `spec__value ${off > WARN_RESIDUAL_MM ? '' : 'spec__value--good'}`.trim(),
+      }, `${mm(off)} mm`),
+      el('dt', { class: 'spec__key' }, 'Paper is turned'),
+      el('dd', { class: 'spec__value' }, `${(calibration.rotationDeg ?? 0).toFixed(2)}\u00b0`),
+      el('dt', { class: 'spec__key' }, 'Scale'),
+      el('dd', { class: 'spec__value' }, `${(calibration.scale ?? 1).toFixed(4)}\u00d7`),
+    ]),
+
+    off > WARN_RESIDUAL_MM && el('div', { class: 'notice notice--warn' }, [
+      el('strong', { class: 'notice__title' }, 'The corners do not agree'),
+      el('span', {},
+        'One of the three is out by more than the others. Recording them again ' +
+        'is quicker than plotting crooked.'),
+    ]),
+  ].filter(Boolean));
 }
 
 /**
@@ -789,12 +902,6 @@ function readyRows(state, actions, status) {
         onClick: () => actions.machineDelete(selectedFile),
       }),
     ].filter(Boolean)),
-
-    !status.calibrated && el('div', { class: 'notice notice--warn' }, [
-      el('strong', { class: 'notice__title' }, 'Not calibrated'),
-      el('span', {}, 'The plotter will not start a job until its paper is ' +
-        'squared up. Calibration arrives in Phase 6.'),
-    ]),
 
     storageRow(status),
   ].filter(Boolean);

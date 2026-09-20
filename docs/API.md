@@ -47,6 +47,14 @@ after a closed tab.
     "startedAt": 1758240000,
     "elapsedSec": 512
   },
+  "calibration": {
+    "state": "capturing",
+    "captured": [0, 1],
+    "needed": 3,
+    "residualMm": null,
+    "rotationDeg": null,
+    "scale": null
+  },
   "error": null,
   "penLift": false,
   "storage": { "usedBytes": 2411724, "totalBytes": 15931539456 }
@@ -54,6 +62,11 @@ after a closed tab.
 ```
 
 `state` is one of `idle`, `running`, `paused`, `error`, `calibrating`.
+
+`calibration.state` is one of `idle`, `capturing`, `solved`, `verifying`,
+`locked`. The fit figures are `null` until a solve has happened. This is here
+so the app can rebuild the calibration UI after a closed tab rather than
+having to remember a sequence the machine is already part way through.
 
 `job` is `null` when no job is loaded. `error` carries the last error object when
 `state` is `error`, otherwise `null`.
@@ -175,8 +188,11 @@ warn above a configurable threshold before the user walks to the machine.
 
 ### `POST /api/calibration/verify`
 
-No body. Moves the gondola to the computed fourth corner and returns `202`. The
-app then asks the user to accept or reject.
+No body. Moves the gondola to the computed fourth corner and returns `202` with
+the corner it went to. The app then asks the user to accept or reject.
+
+The move goes through the *candidate* transform, not a locked one — that is the
+question being asked: does this fit put the pen where the paper actually is?
 
 ### `POST /api/calibration/confirm`
 
@@ -185,7 +201,12 @@ app then asks the user to accept or reject.
 ```
 
 `true` locks the transform in for subsequent jobs. `false` discards it and
-restarts capture from corner 0.
+restarts capture from corner 0 — if the fourth corner is wrong then one of the
+three is wrong, and there is no way to know which, so keeping them would carry
+the mistake forward.
+
+Re-seeding also discards a locked transform: the machine's idea of itself has
+changed, so a transform measured against the old one describes nothing.
 
 ---
 

@@ -9,8 +9,9 @@ matching, argument checking and error slugs, and none of that needs a socket.
 What a framework contributes is sockets.
 """
 
-from store import StoreError
+from calibration import CalibrationError
 from controller import ControllerError
+from store import StoreError
 
 
 class Response:
@@ -53,6 +54,8 @@ class Api:
             return self._route(method, parts, body, stream)
         except ControllerError as refusal:
             return error(refusal.status, refusal.slug, refusal.message)
+        except CalibrationError as refusal:
+            return error(refusal.status, refusal.slug, refusal.message)
         except StoreError as refusal:
             status = 404 if refusal.slug == "not_found" else 400
             return error(status, refusal.slug, refusal.message)
@@ -76,10 +79,7 @@ class Api:
         if head == "position" and parts[1:] == ["seed"]:
             return self._seed(method, body)
         if head == "calibration":
-            # Phase 6. Documented, so a 404 would be misleading about whether
-            # the endpoint exists — it does, it is just not built yet.
-            return error(501, "not_implemented",
-                         "calibration arrives in Phase 6")
+            return self._calibration(method, parts[1:], body)
 
         return error(404, "not_found", "no such endpoint")
 
@@ -169,6 +169,39 @@ class Api:
         if action == "resume":
             return Response(200, controller.resume())
         return Response(200, controller.stop())
+
+    def _calibration(self, method, rest, body):
+        known = ("corner", "solve", "verify", "confirm")
+
+        if len(rest) != 1 or rest[0] not in known:
+            return error(404, "not_found", "no such endpoint")
+
+        if method != "POST":
+            return _wrong_method("POST")
+
+        step = rest[0]
+        controller = self.controller
+
+        if step == "corner":
+            if not isinstance(body, dict) or "index" not in body:
+                return error(400, "bad_body", "index and paperPoint are required")
+
+            point = body.get("paperPoint")
+            if not isinstance(point, dict) or "x" not in point or "y" not in point:
+                return error(400, "bad_body", "paperPoint needs x and y")
+
+            return Response(200, controller.capture_corner(int(body["index"]), point))
+
+        if step == "solve":
+            return Response(200, controller.solve_calibration())
+
+        if step == "verify":
+            # 202: the gondola is on its way, and the user is being asked to
+            # look at where it ends up.
+            return Response(202, controller.verify_calibration())
+
+        accepted = bool(body.get("accepted")) if isinstance(body, dict) else False
+        return Response(200, controller.confirm_calibration(accepted))
 
     def _jog(self, method, body):
         if method != "POST":

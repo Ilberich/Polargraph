@@ -894,6 +894,73 @@ const actions = {
     }));
   },
 
+  /**
+   * Record where the pen is as a corner of the paper.
+   *
+   * The corner's paper coordinates come from the sheet the app is working on,
+   * not from the plotter: the app is the one that knows how big the paper is,
+   * and the machine is the one that knows where the pen is. Calibration is
+   * exactly the act of putting those two together.
+   */
+  captureCorner(index) {
+    const { widthMm, heightMm } = state.scene.paper;
+    const corners = [
+      { x: 0, y: 0 },
+      { x: widthMm, y: 0 },
+      { x: widthMm, y: heightMm },
+    ];
+
+    return machineDo('Recording the corner\u2026', (client) =>
+      client.captureCorner(index, corners[index]));
+  },
+
+  async solveCalibration() {
+    setMachine({ busy: 'Working out where the paper is\u2026', error: null });
+
+    const result = await connection.command((client) => client.solveCalibration());
+
+    // The solve answers with the fit rather than a status, so the panel is
+    // brought up to date by asking.
+    await connection.poll();
+
+    setMachine({
+      busy: null,
+      view: connection.view(),
+      error: result.ok ? null : result.error.message,
+    });
+  },
+
+  async verifyCalibration() {
+    setMachine({ busy: 'Driving to the last corner\u2026', error: null });
+
+    const result = await connection.command((client) => client.verifyCalibration());
+    await connection.poll();
+
+    setMachine({
+      busy: null,
+      view: connection.view(),
+      error: result.ok ? null : result.error.message,
+    });
+  },
+
+  async confirmCalibration(accepted) {
+    setMachine({
+      busy: accepted ? 'Locking it in\u2026' : 'Starting over\u2026',
+      error: null,
+    });
+
+    const result = await connection.command((client) => client.confirmCalibration(accepted));
+    await connection.poll();
+
+    setMachine({
+      busy: null,
+      view: connection.view(),
+      error: result.ok ? null : result.error.message,
+    });
+
+    if (accepted && result.ok) setStatus('The plotter knows where the paper is.');
+  },
+
   machineJog(dx, dy) {
     return machineDo('Moving\u2026', (client) =>
       client.jog(dx, dy, state.settings.travelFeedRate));

@@ -131,6 +131,15 @@ export function createClient({
     jog: (dx, dy, feed) => request('POST', '/jog', { json: { dx, dy, feed } }),
     seed: (options) => request('POST', '/position/seed', { json: options }),
 
+    captureCorner: (index, paperPoint) =>
+      request('POST', '/calibration/corner', { json: { index, paperPoint } }),
+    solveCalibration: () => request('POST', '/calibration/solve'),
+    // The gondola drives to the fourth corner, so this takes as long as a jog.
+    verifyCalibration: (timeout = 60_000) =>
+      request('POST', '/calibration/verify', { timeout }),
+    confirmCalibration: (accepted) =>
+      request('POST', '/calibration/confirm', { json: { accepted } }),
+
     getConfig: () => request('GET', '/config'),
     setConfig: (changes) => request('PUT', '/config', { json: changes }),
   };

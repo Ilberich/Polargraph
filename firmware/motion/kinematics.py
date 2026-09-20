@@ -40,12 +40,50 @@ MM_PER_STEP = MM_PER_REV / STEPS_PER_REV
 STEPS_PER_MM = STEPS_PER_REV / MM_PER_REV
 
 
+def apply_transform(transform, x, y):
+    """A point through a row-major 2x3: `x' = a*x + b*y + tx`.
+
+    That is the layout docs/API.md publishes, and **not** SVG's
+    `matrix(a b c d e f)` column order the app uses elsewhere. The two are
+    transposes in their first four values, and confusing them shows up as a
+    drawing mirrored about its own diagonal.
+    """
+    a, b, tx, c, d, ty = transform
+    return (a * x + b * y + tx, c * x + d * y + ty)
+
+
+def invert_transform(transform):
+    """The transform that undoes this one.
+
+    General enough for any invertible 2x3, rather than assuming the similarity
+    calibration happens to produce: a helper that quietly requires its input to
+    be a rotation is a helper waiting to be handed something else.
+    """
+    a, b, tx, c, d, ty = transform
+    determinant = a * d - b * c
+
+    if determinant == 0:
+        raise ValueError("that transform collapses the paper to a line")
+
+    ia, ib = d / determinant, -b / determinant
+    ic, id_ = -c / determinant, a / determinant
+
+    return [ia, ib, -(ia * tx + ib * ty), ic, id_, -(ic * tx + id_ * ty)]
+
+
 class Geometry:
     """Where the motors are, and where the paper sits under them.
 
     ``motor_spacing_mm`` is centre to centre along the motor line.
     ``paper_origin`` is the paper's top-left corner in machine coordinates,
-    which is what ties the app's millimetres to this machine's.
+    which is what ties the app's millimetres to this machine's *before* the
+    machine has been calibrated.
+
+    Once it has, ``transform`` replaces that offset outright rather than
+    correcting it. Calibration measures the whole relationship between the two
+    coordinate systems — where the sheet is, how it is turned, and any error in
+    the numbers that were typed in — so keeping the estimate around to add to
+    the measurement would only reintroduce what was just measured away.
     """
 
     def __init__(
@@ -55,6 +93,7 @@ class Geometry:
         paper_origin_y_mm,
         paper_width_mm=0,
         paper_height_mm=0,
+        transform=None,
     ):
         if motor_spacing_mm <= 0:
             raise ValueError("motor spacing must be positive")
@@ -65,13 +104,33 @@ class Geometry:
         self.paper_width_mm = float(paper_width_mm)
         self.paper_height_mm = float(paper_height_mm)
 
+        self.transform = list(transform) if transform else None
+        self._inverse = invert_transform(self.transform) if self.transform else None
+
     def to_machine(self, x_mm, y_mm):
         """Paper coordinates to machine coordinates."""
+        if self.transform is not None:
+            return apply_transform(self.transform, x_mm, y_mm)
+
         return (x_mm + self.paper_origin_x_mm, y_mm + self.paper_origin_y_mm)
 
     def to_paper(self, x_mm, y_mm):
         """Machine coordinates to paper coordinates."""
+        if self._inverse is not None:
+            return apply_transform(self._inverse, x_mm, y_mm)
+
         return (x_mm - self.paper_origin_x_mm, y_mm - self.paper_origin_y_mm)
+
+    def with_transform(self, transform):
+        """The same machine, calibrated."""
+        return Geometry(
+            self.motor_spacing_mm,
+            self.paper_origin_x_mm,
+            self.paper_origin_y_mm,
+            self.paper_width_mm,
+            self.paper_height_mm,
+            transform,
+        )
 
 
 def belt_lengths(geometry, x_mm, y_mm):
