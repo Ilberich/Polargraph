@@ -1,7 +1,7 @@
 # Firmware
 
-MicroPython for the Raspberry Pi Pico 2 W. **Phase 4 in progress.** See
-[`../docs/ROADMAP.md`](../docs/ROADMAP.md).
+MicroPython for the Raspberry Pi Pico 2 W. **Complete and awaiting hardware.**
+See [`../docs/BRINGUP.md`](../docs/BRINGUP.md) to put it on a machine.
 
 Built so far, all **plain Python** with no MicroPython-only imports, so the
 desktop simulator in [`../tools/`](../tools/) runs the same modules the Pico
@@ -16,12 +16,28 @@ firmware/motion/pen.py          PenAxis, and NullPen for v1
 firmware/gcode/parser.py        streaming line-at-a-time parser
 firmware/job.py                 run, pause, resume, stop, error
 firmware/button.py              debounced pause button
+firmware/store.py               files on the card, streamed in and out
+firmware/config.py              config.json: WiFi credentials only
+firmware/calibration.py         three corners to a similarity transform
+firmware/controller.py          what outlives a job: trust, calibration, files
+firmware/server/api.py          the REST API as dispatch
+firmware/server/app.py          microdot binding. Pico only, unverified.
+firmware/supervisor.py          the main loop, as something a test can step
+firmware/hardware.py            the pin map, and the peripherals on it
+firmware/main.py                boot
 ```
 
-`pio.py` is the only file that needs hardware, and the only one not covered by
-tests. That is deliberate: everything it could get wrong that is not wiring —
-pulse counts, directions, intervals — was moved into `stepper.py`, where it can
-be checked without a motor.
+### Third-party
+
+[microdot](https://github.com/miguelgrinberg/microdot) has to be on the card;
+it is the only dependency. Everything else is standard library.
+
+`pio.py` and `server/app.py` are the only files that need hardware, and the
+only ones not covered by tests. That is deliberate: everything they could get
+wrong that is not wiring — pulse counts, directions, intervals, routes,
+argument checking, error slugs — was moved into `stepper.py` and `api.py`,
+where it can be checked without a motor or a socket. Bring-up settles the
+wager.
 
 Run their tests with `npm run test:firmware`, or the whole project with
 `npm test`.

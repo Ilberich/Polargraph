@@ -391,13 +391,38 @@ real firmware.
 
 ---
 
-## Phase 7 — Bring-up and documentation
+## Phase 7 — Bring-up and documentation — **ready for hardware**
 
-- Finalize GPIO pin map: steppers, DRV8825s, SD SPI, pause button, servo header
-  reserved for v2
-- Wiring guide, DRV8825 current tuning (they stay powered for holding torque —
-  current limit matters thermally)
-- First-plot walkthrough, tuning guide, troubleshooting
+Everything that can be built without a machine is built. What is left is the
+part that needs one.
+
+- **Boot:** done. `firmware/main.py` mounts the card, reads the config, joins
+  the network, and runs the server and the motion loop as two asyncio tasks.
+  - Card first, because everything else is on it. Motion last and **disabled**,
+    because the drivers hold current continuously and leaving them energised
+    from boot is heat for nothing.
+  - A failure prints and keeps printing rather than dropping to a REPL. A
+    plotter has no screen, and a user standing at one learns nothing from a
+    `>>>` they cannot see.
+- **The pin map is final, and it lives in `firmware/hardware.py`.**
+  `docs/HARDWARE.md` describes it; the code is the source of truth. A wiring
+  document that has drifted from the firmware is a bring-up session spent
+  chasing a fault that was never in the hardware.
+- **Supervisor:** done, and stepped by tests rather than only by time. The
+  button and the driver fault lines are read *before* the job is advanced: on a
+  machine whose emergency stop is a person's finger, that is the difference
+  between stopping now and stopping when it feels like it.
+  - A `nFAULT` stops the job, clears `positionTrusted` and logs once. A
+    DRV8825 that has overheated holds the line low until reset, and reporting
+    it every round would fill the log with one event.
+- **`docs/BRINGUP.md`:** flash, card, network, one motor on the bench, homing,
+  calibration, first plot — each step saying what it should look like, so a
+  step that looks different is a finding rather than a puzzle. Plus the
+  troubleshooting table and DRV8825 current tuning, which is a thermal setting
+  here because the motors hold the gondola up.
+
+**Done when:** a circle closes, two plots of the same file land on top of each
+other, and a full sheet finishes without `nFAULT` tripping.
 
 ---
 
