@@ -283,12 +283,38 @@ the same code drives real motors.
 
 ---
 
-## Phase 5 — REST API and connected mode
+## Phase 5 — REST API and connected mode — **in progress**
 
-- microdot server: upload (**streamed to SD**, never buffered in RAM), start/stop/
-  pause/resume, status, jog, config read/write, file list/delete, storage usage
-- Static route serving the app bundle from SD `/www` (AD-1)
-- `config.json` handling — WiFi credentials only
+- **REST API:** done, as dispatch rather than as a framework. Method, path and
+  body in; a status and a dictionary out, with no web framework anywhere near
+  it. Same split as the PIO driver: what the API can get wrong is route
+  matching, argument checking and error slugs, and none of that needs a socket.
+  - Upload takes an iterable of chunks and writes them straight to the card.
+    Nothing on that path ever holds a file, which is what lets a 4 MB plot land
+    on a machine with 512 KB of memory.
+  - File names are refused rather than sanitised. Quietly rewriting a name the
+    client chose means the file uploaded and the file asked for can differ,
+    which is worse than saying no.
+  - An unknown action is a 404 and a known one with the wrong method is a 405.
+    Calibration returns 501 `not_implemented`, because it is in `docs/API.md`
+    and a 404 would be misleading about whether it exists.
+- **Machine controller:** done. Position trust, calibration and the loaded job
+  live here rather than on a job, because AD-5 makes trust a property of the
+  machine: it is cleared at boot, before any job exists, and a job that owned
+  it would hand it back every time it finished.
+  - Seeding is the only thing permitted while position is untrusted, since it
+    is the thing that makes it trusted (AD-3).
+  - `tick()` runs a bounded slice of the job so the server and the button still
+    get a look in. A plotter that cannot be paused while it plots is not one
+    anybody wants.
+- **microdot binding and the static route** (AD-1): written, **unverified** —
+  it needs sockets, SPI and a WiFi stack, like `motion/pio.py`.
+- **`config.json` handling:** done — WiFi credentials only, and the password is
+  never sent back even to the client that set it. A plotter that remembers a
+  paper size is a plotter that will one day draw on the wrong paper without
+  being asked.
+- **Deploy script** (`tools/deploy.py`): copies the bundle to `/www` on the
+  card and makes the gcode directory. 39 files, 252 KB; tests stay behind.
 - App side: connection manager, machine control panels, progress tracker,
   graceful fallback to standalone
 - Pages build detects HTTPS and directs the user to their plotter's local address
