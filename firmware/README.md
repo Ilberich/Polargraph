@@ -11,7 +11,7 @@ will — what is being validated is the firmware itself, not a model of it.
 firmware/motion/kinematics.py   XY <-> belt lengths <-> steps
 firmware/motion/planner.py      segmentation, step deltas, bounded lookahead
 firmware/motion/stepper.py      segments -> pulse trains; timing arithmetic
-firmware/motion/pio.py          the state machines. Pico only, unverified.
+firmware/motion/pio.py          the state machines. Pico only, bench-tested.
 firmware/motion/pen.py          PenAxis, and NullPen for v1
 firmware/gcode/parser.py        streaming line-at-a-time parser
 firmware/job.py                 run, pause, resume, stop, error
@@ -36,8 +36,12 @@ it is the only dependency. Everything else is standard library.
 only ones not covered by tests. That is deliberate: everything they could get
 wrong that is not wiring — pulse counts, directions, intervals, routes,
 argument checking, error slugs — was moved into `stepper.py` and `api.py`,
-where it can be checked without a motor or a socket. Bring-up settles the
-wager.
+where it can be checked without a motor or a socket.
+
+**`pio.py` is confirmed on hardware:** both motors turn from the pin map as
+written, which settles [AD-4](../docs/DECISIONS.md#ad-4--step-generation-uses-rp2350-pio).
+`server/app.py` is outstanding. It can be brought up on internal flash without
+a card — see [`../docs/BRINGUP.md`](../docs/BRINGUP.md).
 
 Run their tests with `npm run test:firmware`, or the whole project with
 `npm test`.

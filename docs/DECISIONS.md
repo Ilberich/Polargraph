@@ -106,6 +106,10 @@ timing. HTTP serving cannot perturb step timing.
 - Motion planning is validated in a host-side CPython simulator against expected
   geometry before any hardware is involved.
 
+**Outcome: confirmed.** Bench-tested on a Pico 2 W with both motors on the pin
+map as written. The simulator's part is done — it predicted a peak of about
+1600 steps/s for a real job, and the state machines hold it.
+
 ---
 
 ## AD-5 — Calibration persistence requires a position-trust flag

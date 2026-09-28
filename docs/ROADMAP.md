@@ -234,11 +234,11 @@ Built against a host-side simulator first. No hardware required to make progress
   iterable, so a job of any size costs one line of memory. Unknown words and
   unsupported commands are refused with a line number rather than ignored — a
   plotter that skips a word it does not understand draws the wrong picture.
-- **PIO stepper driver** (AD-4): split in two. The timing arithmetic —
-  how many pulses each axis needs, in which direction, how far apart — is
-  hardware-independent and tested on the desktop; the state machines live in
-  `motion/pio.py`, which only imports on the Pico and is **unverified pending
-  Phase 7 bring-up**.
+- **PIO stepper driver** (AD-4): **confirmed on hardware.** Both motors turn
+  from the pin map as written. The timing arithmetic — how many pulses each
+  axis needs, in which direction, how far apart — is hardware-independent and
+  tested on the desktop; the state machines live in `motion/pio.py`, which
+  only imports on the Pico.
   - One state machine per axis, each counting its own steps at its own
     interval. A segment needing 80 left steps and 10 right over the same 100 ms
     pulses one axis eight times as often as the other, and they finish

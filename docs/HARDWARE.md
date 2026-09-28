@@ -27,7 +27,8 @@ These live in code at `app/js/core/machine.js` and are asserted under test.
 
 ## Pin map
 
-**Status: final in firmware, unverified on hardware.** The numbers live in
+**Status: final, and confirmed on a bench.** Both motors step and reverse
+from these pins. The numbers live in
 [`firmware/hardware.py`](../firmware/hardware.py) and this table describes them.
 The code is the source of truth — a wiring document that has drifted from the
 firmware is a bring-up session spent chasing a fault that was never in the

@@ -3,9 +3,15 @@
 Getting from a box of parts to a first plot. Written to be followed in order,
 because each step is the one that makes the next one's failure readable.
 
-Nothing here has been run on hardware yet. Every step says what it should look
-like, so a step that looks different is a finding rather than a puzzle — and
-`docs/HARDWARE.md` has the wiring and the current tuning it assumes.
+Every step says what it should look like, so a step that looks different is a
+finding rather than a puzzle — and `docs/HARDWARE.md` has the wiring and the
+current tuning it assumes.
+
+**Confirmed on hardware:** steps 1, 2 and 5. PIO drives both motors from the
+pin map in `firmware/hardware.py`, which settles
+[AD-4](DECISIONS.md#ad-4--step-generation-uses-rp2350-pio) — the wager the
+whole host simulator existed to hedge. **Not yet confirmed:** the card, the
+network, and `server/app.py`.
 
 ---
 
@@ -20,11 +26,13 @@ Everything that can be checked without a motor has been:
 | REST API, storage, calibration | Same, plus a browser driving the real firmware over a bridge |
 | Step timing arithmetic | `motion/stepper.py`, tested |
 
-Two files are **not** covered, deliberately, because what they do needs the
-hardware: [`motion/pio.py`](../firmware/motion/pio.py) and
-[`server/app.py`](../firmware/server/app.py). Everything they could get wrong
-that is not wiring was moved into the tested files. That is the wager this
-phase settles.
+Two files are not covered by tests, deliberately, because what they do needs
+the hardware. [`motion/pio.py`](../firmware/motion/pio.py) **has now been
+confirmed on a bench** — both motors turn from the pin map as written.
+[`server/app.py`](../firmware/server/app.py) is still outstanding.
+
+Everything those two could get wrong that is not wiring was moved into the
+tested files. Half of that wager has now paid.
 
 ---
 
@@ -55,6 +63,10 @@ If `_machine` says RP2040, the wrong build is on and nothing below will behave.
 ---
 
 ## 3. The card
+
+> **No card yet?** Skip to [running off internal flash](#no-card-running-off-internal-flash)
+> and come back. Everything except storing real plot files works without one.
+
 
 Wire the SD breakout per the pin map, then:
 
@@ -223,3 +235,45 @@ geometry survives and the clock slips.
 - Two plots of the same file land on top of each other.
 - A plot survives a pause, a pen change and a resume.
 - `nFAULT` never trips during a full-sheet drawing.
+
+
+---
+
+## No card: running off internal flash
+
+A Pico 2 W has about 1.5 MB of filesystem free after MicroPython, and the app
+bundle is 252 KB. That is enough to bring up the network, the server and the
+whole app — everything except storing a plot file, which is the one thing flash
+cannot do and the reason the card exists at all.
+
+This is a bring-up path, not a fallback. The firmware will not quietly use
+flash if a card is missing: a plotter that silently stored jobs there would
+work right up until the first drawing anybody cared about.
+
+Copy the bundle across with `mpremote`:
+
+```
+python3 tools/deploy.py /tmp/bundle        # tests stripped, 39 files
+mpremote mkdir :www
+mpremote cp -r /tmp/bundle/www/. :www/
+mpremote mkdir :gcode
+```
+
+Write `/config.json` on the board with your WiFi credentials, then:
+
+```python
+>>> import main, hardware
+>>> main.run(hardware.FLASH_ROOT)
+polargraph up at http://192.168.1.47 (polargraph.local)
+position is not trusted until it is homed
+```
+
+`FLASH_ROOT` is empty rather than a directory name, because MicroPython mounts
+the internal filesystem at `/` — so the paths come out `/www`, `/gcode` and
+`/config.json`.
+
+**What this does and does not prove.** It exercises `server/app.py` completely:
+routing, the static route, and the streamed upload path. What it cannot
+exercise is SPI contention — on the real machine the gcode stream and the web
+bundle share one bus to one card, and that only shows up with a card in the
+slot. Upload something small; a real plot file will fill the flash.

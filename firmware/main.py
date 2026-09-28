@@ -34,11 +34,21 @@ from store import Store
 from supervisor import Supervisor
 
 
-def build():
-    """Everything wired together, or an exception saying what was missing."""
-    hardware.mount_sd()
+def build(root=None):
+    """Everything wired together, or an exception saying what was missing.
 
-    config = Config.load(hardware.CONFIG_PATH)
+    `root` points the firmware at somewhere other than the SD card — the
+    board's own flash, during bring-up, while a card is in the post. It is a
+    bring-up path and not a fallback: the bundle fits in flash and a plot file
+    does not, so a plotter that quietly stored jobs there would work right up
+    until the first drawing anybody cared about.
+    """
+    if root is None:
+        root = hardware.mount_sd()
+
+    paths = hardware.storage_paths(root)
+
+    config = Config.load(paths["config"])
     address = hardware.connect_wifi(
         config["ssid"], config["password"], config["hostname"])
 
@@ -52,7 +62,7 @@ def build():
     pen = NullPen()
     stepper = Stepper(backend, pen)
 
-    store = Store(hardware.GCODE_DIR)
+    store = Store(paths["gcode"])
     controller = Controller(store, config, stepper, pen)
 
     supervisor = Supervisor(
@@ -61,7 +71,7 @@ def build():
         faults=hardware.fault_pins(),
     )
 
-    return controller, supervisor, address
+    return controller, supervisor, address, paths
 
 
 async def motion_loop(supervisor):  # pragma: no cover - needs the Pico
@@ -75,11 +85,11 @@ async def motion_loop(supervisor):  # pragma: no cover - needs the Pico
         await asyncio.sleep_ms(0 if busy else 20)
 
 
-def run():  # pragma: no cover - needs the Pico
+def run(root=None):  # pragma: no cover - needs the Pico
     import asyncio
 
-    controller, supervisor, address = build()
-    app = create(controller, hardware.WWW_DIR)
+    controller, supervisor, address, paths = build(root)
+    app = create(controller, paths["www"])
 
     print("polargraph up at http://%s (%s.local)" % (address, controller.config["hostname"]))
     print("position is not trusted until it is homed")

@@ -55,6 +55,32 @@ PEN_SERVO = 14
 
 #: Where the card is mounted, and what lives on it.
 SD_MOUNT = "/sd"
+
+#: The board's own flash, for bring-up before a card is available. Empty
+#: rather than a directory name because MicroPython mounts the internal
+#: littlefs at `/`, so the paths come out as `/www` and `/gcode`.
+#:
+#: The bundle is 252 KB and fits easily; a plot file will not, which is the
+#: whole reason the card exists. See `storage_paths`.
+FLASH_ROOT = ""
+
+
+def storage_paths(root=SD_MOUNT):
+    """Where the three things the firmware needs live, under a given root.
+
+    Taking a root rather than hardcoding `/sd` is what lets the server be
+    brought up on internal flash while a card is in the post. It is a
+    bring-up path, not a fallback: a plotter that quietly stored jobs on
+    flash would work until the first drawing anybody cared about.
+    """
+    return {
+        "www": root + "/www",
+        "gcode": root + "/gcode",
+        "config": root + "/config.json",
+    }
+
+
+#: The usual case, spelled out for the code that only ever wants the card.
 WWW_DIR = SD_MOUNT + "/www"
 GCODE_DIR = SD_MOUNT + "/gcode"
 CONFIG_PATH = SD_MOUNT + "/config.json"
@@ -100,13 +126,24 @@ def mount_sd(mount=SD_MOUNT):  # pragma: no cover - needs the Pico
     # Faster once the card has answered at the slow rate it must be probed at.
     spi.init(baudrate=12_000_000)
 
-    for directory in (mount + "/www", mount + "/gcode"):
+    make_directories(mount)
+
+    return mount
+
+
+def make_directories(root):  # pragma: no cover - needs a filesystem to make
+    """The directories the firmware expects, wherever it has been pointed."""
+    import os
+
+    paths = storage_paths(root)
+
+    for directory in (paths["www"], paths["gcode"]):
         try:
             os.mkdir(directory)
         except OSError:
             pass  # already there, which is the usual case
 
-    return mount
+    return paths
 
 
 # --- network ----------------------------------------------------------------
