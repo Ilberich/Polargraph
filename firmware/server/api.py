@@ -30,6 +30,17 @@ def error(status, slug, message):
     return Response(status, {"error": slug, "message": message})
 
 
+def file_written(name, written):
+    """What an upload answers with.
+
+    Here rather than inline because the microdot binding has its own upload
+    route — it must, since that is the one request whose body cannot be
+    assembled — and two places shaping the same response is two places to
+    drift apart.
+    """
+    return Response(201, {"name": name, "bytes": written})
+
+
 class Api:
     """Routes, bound to one machine."""
 
@@ -135,7 +146,7 @@ class Api:
             finally:
                 written = writer.close()
 
-            return Response(201, {"name": name, "bytes": written})
+            return file_written(name, written)
 
         if method == "DELETE":
             if self.controller.job_file == name and self.controller.job is not None:

@@ -210,6 +210,19 @@ show more than a complicated drawing will:
 
 ## Troubleshooting
 
+**`timeout waiting for response` or `EIO` from `sdcard.readblocks`, while
+serving the app.** Two asyncio tasks on the SPI bus at once. asyncio on
+MicroPython is cooperative, so tasks cannot interleave inside a synchronous
+call — but they interleave at every `await`, and the `sdcard` driver is not
+reentrant. An `await` part way through a block read lets another task start its
+own transaction on top, which corrupts the bus rather than the file. A browser
+fetching the bundle opens several connections at once, so this is the first
+page load rather than an edge case.
+
+The rule is **never `await` inside an SD transaction**: bundle files are read
+whole and synchronously, and uploads are written a chunk at a time with the
+`await` for the next chunk outside the write.
+
 **`SyntaxError` on import, naming a line that looks fine.** MicroPython's
 compiler is narrower than CPython's, and the message says nothing about what it
 objected to. Run `npm run lint:micropython`, which walks the firmware's AST for
@@ -293,3 +306,9 @@ routing, the static route, and the streamed upload path. What it cannot
 exercise is SPI contention — on the real machine the gcode stream and the web
 bundle share one bus to one card, and that only shows up with a card in the
 slot. Upload something small; a real plot file will fill the flash.
+
+That contention duly showed up the first time the bundle was served off a card,
+as `timeout waiting for response` and then `EIO` from three requests at once.
+The cause and the rule that fixes it are in
+[`firmware/server/app.py`](../firmware/server/app.py): **never `await` inside an
+SD transaction.**
