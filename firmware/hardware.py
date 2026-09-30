@@ -97,7 +97,51 @@ def _require_micropython(what):
 
 # --- storage ----------------------------------------------------------------
 
-def mount_sd(mount=SD_MOUNT):  # pragma: no cover - needs the Pico
+#: How many times to ask the card before giving up.
+SD_ATTEMPTS = 6
+
+#: How long to wait between goes, milliseconds.
+SD_SETTLE_MS = 150
+
+
+def bring_up_card(open_card, attempts=SD_ATTEMPTS, settle_ms=SD_SETTLE_MS,
+                  sleep=None):
+    """Ask the card to start, more than once, with a pause between goes.
+
+    A card in SPI mode does not reliably answer the first time it is asked.
+    The spec gives it a settling period after power is applied, and a soft
+    reset does not power-cycle it — so the board can come back up and start
+    talking to a card that is still part way through whatever it was doing.
+
+    The difference is invisible at a REPL, where seconds pass between typing
+    `import hardware` and typing `hardware.mount_sd()`, and reliable from a
+    script, which gets there in milliseconds. That asymmetry is what makes
+    this worth retrying rather than reporting: the card is fine, it was asked
+    too early.
+
+    `open_card` does the work and raises `OSError` when the card does not
+    answer. Injected so the retrying can be tested without one.
+    """
+    if sleep is None:  # pragma: no cover - needs the Pico
+        import time
+        sleep = time.sleep_ms
+
+    problem = None
+
+    for attempt in range(attempts):
+        if attempt:
+            sleep(settle_ms)
+
+        try:
+            return open_card()
+        except OSError as refused:
+            problem = refused
+
+    raise HardwareError(
+        "no SD card after %d attempts: %s" % (attempts, problem))
+
+
+def mount_sd(mount=SD_MOUNT, attempts=SD_ATTEMPTS):  # pragma: no cover - needs the Pico
     """Mount the card, and make sure the directories the firmware needs exist.
 
     Raises rather than falling back. A plotter that cannot reach its card has
@@ -109,6 +153,16 @@ def mount_sd(mount=SD_MOUNT):  # pragma: no cover - needs the Pico
     import os
     import sdcard
 
+    # A soft reset leaves the mount table alone while destroying the driver
+    # object behind it, so anything still mounted here is a stale entry from
+    # the last run and has to go before the card can be opened again.
+    try:
+        os.umount(mount)
+    except OSError:
+        pass
+
+    # Probed slowly on purpose: a card must be addressed at 100-400 kHz until
+    # it has answered, and only then sped up.
     spi = machine.SPI(
         0,
         baudrate=1_000_000,
@@ -117,13 +171,18 @@ def mount_sd(mount=SD_MOUNT):  # pragma: no cover - needs the Pico
         miso=machine.Pin(SD_MISO),
     )
 
-    try:
-        card = sdcard.SDCard(spi, machine.Pin(SD_CS, machine.Pin.OUT))
-        os.mount(card, mount)
-    except OSError as problem:
-        raise HardwareError("no SD card: %s" % problem)
+    # Held high between attempts, which is where a card expects to see it
+    # while it is being clocked into a known state.
+    chip_select = machine.Pin(SD_CS, machine.Pin.OUT, value=1)
 
-    # Faster once the card has answered at the slow rate it must be probed at.
+    def open_card():
+        card = sdcard.SDCard(spi, chip_select)
+        os.mount(card, mount)
+        return card
+
+    bring_up_card(open_card, attempts)
+
+    # Faster now the card has answered at the rate it had to be probed at.
     spi.init(baudrate=12_000_000)
 
     make_directories(mount)

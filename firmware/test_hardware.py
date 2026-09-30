@@ -21,6 +21,69 @@ class Paths(unittest.TestCase):
         self.assertEqual(paths["config"], "/config.json")
 
 
+class BringingUpTheCard(unittest.TestCase):
+    """A card does not reliably answer the first time it is asked."""
+
+    def setUp(self):
+        self.slept = []
+
+    def sleep(self, ms):
+        self.slept.append(ms)
+
+    def test_a_card_that_answers_at_once_is_not_waited_for(self):
+        card = object()
+        result = hardware.bring_up_card(lambda: card, sleep=self.sleep)
+
+        self.assertIs(result, card)
+        self.assertEqual(self.slept, [], "no reason to pause before the first go")
+
+    def test_a_card_that_answers_late_still_works(self):
+        # The real case: a soft reset does not power-cycle the card, so the
+        # board can come back up and start talking to one that is still part
+        # way through whatever it was doing.
+        tries = []
+
+        def open_card():
+            tries.append(1)
+            if len(tries) < 3:
+                raise OSError("no response from SD card")
+            return "card"
+
+        self.assertEqual(hardware.bring_up_card(open_card, sleep=self.sleep), "card")
+        self.assertEqual(len(tries), 3)
+        self.assertEqual(len(self.slept), 2, "paused before each retry, not after")
+
+    def test_a_card_that_never_answers_is_reported_with_the_count(self):
+        def open_card():
+            raise OSError("no response from SD card")
+
+        with self.assertRaises(hardware.HardwareError) as caught:
+            hardware.bring_up_card(open_card, attempts=4, sleep=self.sleep)
+
+        message = str(caught.exception)
+        self.assertIn("4 attempts", message)
+        self.assertIn("no response", message, "the card's own words survive")
+
+    def test_it_waits_between_goes_rather_than_hammering(self):
+        def open_card():
+            raise OSError("nope")
+
+        with self.assertRaises(hardware.HardwareError):
+            hardware.bring_up_card(open_card, attempts=3, settle_ms=150,
+                                   sleep=self.sleep)
+
+        self.assertEqual(self.slept, [150, 150])
+
+    def test_only_the_card_not_answering_is_retried(self):
+        # A mount that fails for a reason of its own is a different problem,
+        # and retrying it would just take six times as long to say so.
+        def open_card():
+            raise ValueError("that is not an OSError")
+
+        with self.assertRaises(ValueError):
+            hardware.bring_up_card(open_card, sleep=self.sleep)
+
+
 class OffTarget(unittest.TestCase):
     """The peripheral calls refuse rather than pretend.
 

@@ -106,12 +106,17 @@ if __name__ == "__main__":
         run()
     except Exception as problem:  # noqa: BLE001 - the last line of defence
         # A plotter has no screen. Dropping to a REPL tells a user standing at
-        # the machine nothing at all, so say it and keep saying it.
-        sys.print_exception(problem) if hasattr(sys, "print_exception") else None
+        # the machine nothing at all, so say it and keep saying it — but say
+        # the whole thing once, and only a reminder after that. A traceback
+        # repeated every ten seconds buries itself.
+        if hasattr(sys, "print_exception"):
+            sys.print_exception(problem)
+
         print("polargraph did not start: %s" % problem)
+        print("fix it and reset the board; Ctrl-C for a REPL")
 
         import time
 
         while True:
-            print("polargraph did not start: %s" % problem)
-            time.sleep(10)
+            time.sleep(30)
+            print("polargraph is not running: %s" % problem)

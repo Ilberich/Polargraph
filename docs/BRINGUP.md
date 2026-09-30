@@ -78,10 +78,19 @@ Wire the SD breakout per the pin map, then:
 ['www', 'gcode']
 ```
 
-**If it raises `no SD card`:** the probe runs at 1 MHz on purpose — cards must
-be addressed slowly until they answer — so a failure here is wiring, a card
-that wants formatting as FAT32, or a breakout without a level shifter on a 3V3
-part.
+**If it raises `no SD card after N attempts`:** the probe runs at 1 MHz on
+purpose — cards must be addressed slowly until they answer — so a failure here
+is wiring, a card that wants formatting as FAT32, or a breakout without a level
+shifter on a 3V3 part.
+
+**If it works by hand but fails from a script**, that was a real bug and is
+fixed: the card is asked up to six times with a pause between goes. A card in
+SPI mode does not reliably answer the first time, and a soft reset does not
+power-cycle it — so the board comes back up and starts talking to a card that
+is still part way through whatever it was doing. At a REPL, seconds pass
+between typing `import hardware` and typing `hardware.mount_sd()`, and the
+problem never appears. From a script it is milliseconds, and it appears
+every time.
 
 Put the app bundle and a config on it from a computer:
 
