@@ -27,6 +27,22 @@ firmware/hardware.py            the pin map, and the peripherals on it
 firmware/main.py                boot
 ```
 
+### The cost of plain Python
+
+Writing the firmware so the desktop can run it is what makes the simulator and
+the 190 tests possible. The cost is that **CPython is a more generous compiler
+than the one on the Pico**, and the difference does not surface as a failing
+test — it surfaces as a bare `SyntaxError` at import time on the board, naming
+a line number and nothing else.
+
+`**` unpacking inside a dict literal is the one that bit: MicroPython simply
+does not implement it. Every test passed and the board refused the file.
+
+`tools/micropython_lint.py` walks the AST for constructs the Pico's compiler
+will not take, and runs as part of `npm test`. It is a denylist and therefore
+incomplete by nature, but it moves this class of bug from the bench to the
+test suite.
+
 ### Third-party
 
 [microdot](https://github.com/miguelgrinberg/microdot) has to be on the card;

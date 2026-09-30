@@ -275,7 +275,12 @@ class Calibration:
 
         self.state = self.LOCKED
 
-        return {"state": self.state, **self.result}
+        # No `**` unpacking: MicroPython's compiler rejects it in a dict
+        # literal. See tools/micropython_lint.py.
+        locked = dict(self.result)
+        locked["state"] = self.state
+
+        return locked
 
     @property
     def transform(self):

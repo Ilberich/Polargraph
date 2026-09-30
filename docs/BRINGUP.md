@@ -201,6 +201,13 @@ show more than a complicated drawing will:
 
 ## Troubleshooting
 
+**`SyntaxError` on import, naming a line that looks fine.** MicroPython's
+compiler is narrower than CPython's, and the message says nothing about what it
+objected to. Run `npm run lint:micropython`, which walks the firmware's AST for
+constructs the board will refuse. If the lint is clean and the board still is
+not, the construct is one the lint does not know about yet — add it.
+
+
 **The plot shears progressively rather than jumping.** Lost steps. Position on a
 polargraph comes from belt lengths, so a dropped step is not a visible jolt — it
 is a permanent error in where the machine thinks it is, and everything after it

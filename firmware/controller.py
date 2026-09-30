@@ -145,15 +145,17 @@ class Controller:
         not have to remember a sequence the machine is already in the middle
         of.
         """
-        progress = self.calibration.progress()
         result = self.calibration.result
 
-        return {
-            **progress,
-            "residualMm": result["residualMm"] if result else None,
-            "rotationDeg": result["rotationDeg"] if result else None,
-            "scale": result["scale"] if result else None,
-        }
+        # Built by hand rather than with `**` unpacking: MicroPython's compiler
+        # does not accept that inside a dict literal, and CPython tests will
+        # never notice. See tools/micropython_lint.py.
+        status = dict(self.calibration.progress())
+        status["residualMm"] = result["residualMm"] if result else None
+        status["rotationDeg"] = result["rotationDeg"] if result else None
+        status["scale"] = result["scale"] if result else None
+
+        return status
 
     def _error_status(self):
         message = self.job.error if self.job is not None else self.last_error
