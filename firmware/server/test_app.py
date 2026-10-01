@@ -4,7 +4,8 @@ import tempfile
 import unittest
 
 from server.app import (
-    content_type, safe_static_path, read_static, MAX_STATIC_BYTES,
+    content_type, safe_static_path, read_static, bundle_problems,
+    ESSENTIAL, MAX_STATIC_BYTES,
 )
 
 
@@ -103,3 +104,30 @@ class Reading(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BundleCheck(unittest.TestCase):
+    """A half-copied card looks like a working server and a broken app."""
+
+    def test_a_complete_bundle_has_nothing_to_report(self):
+        self.assertEqual(bundle_problems("/sd/www", lambda path: True), [])
+
+    def test_a_missing_module_is_named(self):
+        there = set("/sd/www/" + name for name in ESSENTIAL)
+        there.discard("/sd/www/js/main.js")
+
+        self.assertEqual(bundle_problems("/sd/www", lambda p: p in there),
+                         ["js/main.js"])
+
+    def test_an_empty_card_names_everything(self):
+        self.assertEqual(bundle_problems("/sd/www", lambda path: False),
+                         list(ESSENTIAL))
+
+    def test_the_essentials_are_really_in_the_app(self):
+        # A list of files to check is only useful if it names files that exist;
+        # a typo here would report a missing file forever.
+        app_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "..", "..", "app")
+
+        for name in ESSENTIAL:
+            self.assertTrue(os.path.isfile(os.path.join(app_dir, name)), name)

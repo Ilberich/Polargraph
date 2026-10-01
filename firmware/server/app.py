@@ -120,6 +120,48 @@ def log(*parts):  # pragma: no cover - a print
         print(" ".join(str(p) for p in parts))
 
 
+#: The files the page cannot start without. index.html renders its header
+#: whether or not these arrive — it is static markup — so their absence looks
+#: like a working server and a broken app.
+ESSENTIAL = ("index.html", "js/main.js", "js/ui/panels.js", "css/app.css")
+
+
+def bundle_problems(root, exists):
+    """Which of the essential files are not where they should be.
+
+    Checked at boot rather than waiting for a browser, because the symptom at
+    the far end — a page that loads with an unstyled header and three buttons
+    that do nothing — points at everything except a half-copied card.
+
+    `exists` is injected so this can be tested without a filesystem.
+    """
+    return [name for name in ESSENTIAL if not exists(root + "/" + name)]
+
+
+def check_bundle(root):  # pragma: no cover - needs a filesystem
+    """Report on the bundle at boot. Returns the missing files."""
+    import os
+
+    def exists(path):
+        try:
+            os.stat(path)
+            return True
+        except OSError:
+            return False
+
+    missing = bundle_problems(root, exists)
+
+    if missing:
+        print("the app bundle at %s is incomplete:" % root)
+        for name in missing:
+            print("  missing %s" % name)
+        print("  run tools/deploy.py onto the card; the page will not work")
+    else:
+        print("app bundle present at %s" % root)
+
+    return missing
+
+
 def create(controller, www_root=WWW_ROOT):  # pragma: no cover - needs the Pico
     if Microdot is None:
         raise RuntimeError("microdot is only available on the Pico")

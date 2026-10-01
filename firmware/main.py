@@ -29,7 +29,7 @@ from controller import Controller
 from motion.pen import NullPen
 from motion.pio import PioBackend
 from motion.stepper import Stepper
-from server.app import create
+from server.app import check_bundle, create
 from store import Store
 from supervisor import Supervisor
 
@@ -93,6 +93,10 @@ def run(root=None):  # pragma: no cover - needs the Pico
 
     print("polargraph up at http://%s (%s.local)" % (address, controller.config["hostname"]))
     print("position is not trusted until it is homed")
+
+    # Said at boot, because a half-copied card looks from a browser like a
+    # working server and a broken app.
+    check_bundle(paths["www"])
 
     async def serve():
         asyncio.create_task(motion_loop(supervisor))
