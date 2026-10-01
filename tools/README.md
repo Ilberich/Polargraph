@@ -40,3 +40,17 @@ distorts geometry fails in CI rather than on paper.
 Copies `app/` to a mounted SD card as `/www`, alongside the gcode directory, for
 the plotter-hosted copy of the bundle described in
 [AD-1](../docs/DECISIONS.md#ad-1--dual-host-the-static-bundle).
+
+
+## Bundle checker — `check_bundle.py`
+
+```
+python3 tools/check_bundle.py /media/you/PLOTTER/www
+```
+
+Compares a deployed card against what `deploy.py` would put on it, and names
+anything missing, truncated or extra.
+
+An incomplete copy is invisible from the outside: the page loads, the header
+renders — it is static HTML — and nothing works, because one missing module
+takes the whole import graph down with it.

@@ -210,6 +210,28 @@ show more than a complicated drawing will:
 
 ## Troubleshooting
 
+**The page loads but nothing works.** The header is static HTML — the three
+buttons across the top render whether or not any JavaScript ran — and the panel
+is filled by the app. **A blank panel means `js/main.js` never ran**, so look
+for a module that did not load rather than at the app's own logic.
+
+Three things to check, in order:
+
+1. **The serial console.** Every request is logged with its status, type and
+   size. A page load should be about forty `200` lines. A `404` names the file
+   it looked for.
+2. **The MIME type**, from any machine on the network:
+   `curl -I http://polargraph.local/js/main.js` should say
+   `Content-Type: text/javascript`. A browser refuses a module served as
+   anything else, and the page looks exactly like this when it does.
+3. **The card's contents**, with the card in a computer:
+   `python3 tools/check_bundle.py /path/to/card/www`. An incomplete or
+   half-copied deploy is invisible from the outside, and a truncated file is
+   worse than a missing one because it serves a `200`.
+
+The browser console says which of these it is in one line, if you can get at
+it.
+
 **`timeout waiting for response` or `EIO` from `sdcard.readblocks`, while
 serving the app.** Two asyncio tasks on the SPI bus at once. asyncio on
 MicroPython is cooperative, so tasks cannot interleave inside a synchronous

@@ -49,6 +49,15 @@ MAX_STATIC_BYTES = 192 * 1024
 #: changes when somebody deploys.
 STATIC_CACHE_SECONDS = 600
 
+#: Print a line per request to the serial console.
+#:
+#: On during bring-up, because the console is the only window into a machine
+#: with no screen and "the page loads but nothing works" is indistinguishable
+#: from a dozen causes without knowing what the browser asked for and what it
+#: got. A page load is forty lines and then silence, since the bundle is
+#: cached.
+LOG_REQUESTS = True
+
 CONTENT_TYPES = {
     "html": "text/html",
     "js": "text/javascript",
@@ -106,6 +115,11 @@ def read_static(root, path, max_bytes=MAX_STATIC_BYTES):
         return handle.read(), content_type(full)
 
 
+def log(*parts):  # pragma: no cover - a print
+    if LOG_REQUESTS:
+        print(" ".join(str(p) for p in parts))
+
+
 def create(controller, www_root=WWW_ROOT):  # pragma: no cover - needs the Pico
     if Microdot is None:
         raise RuntimeError("microdot is only available on the Pico")
@@ -148,6 +162,8 @@ def create(controller, www_root=WWW_ROOT):  # pragma: no cover - needs the Pico
         finally:
             writer.close()
 
+        log("201", "POST", name, written, "bytes")
+
         # Shaped by api.py so this route and the tested one cannot drift.
         answer = file_written(name, written)
         return answer.body, answer.status
@@ -158,6 +174,8 @@ def create(controller, www_root=WWW_ROOT):  # pragma: no cover - needs the Pico
     async def api_route(request, rest):
         body = request.json if request.method in ("POST", "PUT") else None
         result = api.handle(request.method, request.path, body)
+
+        log(result.status, request.method, request.path)
 
         if result.body is None:
             return "", result.status
@@ -177,8 +195,17 @@ def create(controller, www_root=WWW_ROOT):  # pragma: no cover - needs the Pico
     def _serve(path):
         try:
             body, kind = read_static(www_root, path)
-        except OSError:
-            return {"error": "not_found", "message": "no such file"}, 404
+        except OSError as missing:
+            # The path is in the message on purpose. A generic 404 from an
+            # embedded server sends people to check their wiring when the
+            # answer is that one file did not make it onto the card.
+            log("404", path, "-", missing)
+            return {
+                "error": "not_found",
+                "message": "no %s in the bundle" % path,
+            }, 404
+
+        log("200", path, kind, len(body))
 
         return body, 200, {
             "Content-Type": kind,
