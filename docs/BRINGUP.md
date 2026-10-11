@@ -245,6 +245,24 @@ The rule is **never `await` inside an SD transaction**: bundle files are read
 whole and synchronously, and uploads are written a chunk at a time with the
 `await` for the next chunk outside the write.
 
+**`ImportError: can't import name X`.** Two files on the board disagree about
+what the other contains, which means one of them did not actually get updated.
+MicroPython caches imported modules for the life of a session, so a soft reset
+is not always enough either.
+
+Check what is really on the board rather than what you meant to put there:
+
+```python
+>>> open('server/app.py').read().count('check_bundle')
+```
+
+Then **hard reset** — the button, or Ctrl-D in Thonny — before running again,
+so nothing stale is left in `sys.modules`.
+
+Worth knowing: the board's filesystem is **case-sensitive**. Uploading
+`server/API.py` leaves `server/api.py` untouched and creates a second file
+nothing imports.
+
 **`SyntaxError` on import, naming a line that looks fine.** MicroPython's
 compiler is narrower than CPython's, and the message says nothing about what it
 objected to. Run `npm run lint:micropython`, which walks the firmware's AST for

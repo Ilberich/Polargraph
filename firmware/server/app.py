@@ -139,7 +139,13 @@ def bundle_problems(root, exists):
 
 
 def check_bundle(root):  # pragma: no cover - needs a filesystem
-    """Report on the bundle at boot. Returns the missing files."""
+    """Report on the bundle. Returns the missing files.
+
+    Called from `create`, not from the boot sequence, so that the thing which
+    serves the bundle is the thing that complains about it — and so there is
+    one less name that two files have to agree about. A firmware updated a
+    file at a time does not need an import that only half of it knows.
+    """
     import os
 
     def exists(path):
@@ -168,6 +174,8 @@ def create(controller, www_root=WWW_ROOT):  # pragma: no cover - needs the Pico
 
     app = Microdot()
     api = Api(controller)
+
+    check_bundle(www_root)
 
     # --- upload -------------------------------------------------------------
     #
