@@ -10,6 +10,11 @@
  * flickering through a plot. So it takes a run of failures, and until then the
  * last known status stands with a note that it is stale.
  *
+ * **A refusal is not a disconnection either.** A plotter that answers with a
+ * 404 or a 500 is a plotter that is there, and reporting it as absent sends
+ * people to check their network when the machine is telling them something.
+ * Only a request that got no answer at all counts against the connection.
+ *
  * **Polling slows down when nothing is happening.** A plotter sitting idle does
  * not need asking every second, and the Pico has better things to do with its
  * radio while it is plotting.
@@ -88,6 +93,18 @@ export function createConnection({ client, onChange = () => {}, now = Date.now }
   }
 
   function fail(problem) {
+    // Something answered, it just did not like the question. The plotter is
+    // there; say what it said rather than claiming it is gone.
+    if (problem instanceof ApiError && !problem.offline) {
+      const changed = state.error?.message !== problem.message;
+
+      state.error = problem;
+      state.failures = 0;
+
+      announce(changed);
+      return;
+    }
+
     state.failures += 1;
 
     const gone = state.failures >= FAILURES_BEFORE_OFFLINE;

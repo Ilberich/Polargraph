@@ -142,3 +142,45 @@ test('stopping the loop stops the polling', async () => {
   assert.ok(after >= 1, 'it polled at least once');
   assert.equal(polls, after, 'and stopped when told to');
 });
+
+test('a plotter that refuses is still a plotter', () => {
+  // A 404 or a 500 means something answered. Reporting that as absent sends
+  // people to check their network when the machine is telling them something.
+  const refusal = new ApiError('not_found', 'no such endpoint', 404);
+  const connection = createConnection({ client: fakeClient(idle, refusal, refusal, refusal, refusal) });
+
+  return (async () => {
+    await connection.poll();
+    for (let i = 0; i < 4; i++) await connection.poll();
+
+    const view = connection.view();
+    assert.equal(view.connection, CONNECTED, 'it answered, so it is there');
+    assert.equal(view.error.status, 404);
+    assert.equal(view.error.message, 'no such endpoint');
+  })();
+});
+
+test('what the plotter said is announced, so the UI can show it', async () => {
+  const seen = [];
+  const connection = createConnection({
+    client: fakeClient(idle, new ApiError('http_error', 'the plotter returned 500', 500)),
+    onChange: (view) => seen.push(view.error?.message ?? null),
+  });
+
+  await connection.poll();
+  await connection.poll();
+
+  assert.deepEqual(seen, [null, 'the plotter returned 500']);
+});
+
+test('a refusal does not count towards going offline', async () => {
+  // Otherwise a plotter answering 404 on every poll would be reported as
+  // missing after three seconds, and the actual message never seen.
+  const refusal = new ApiError('not_found', 'no such endpoint', 404);
+  const connection = createConnection({ client: fakeClient(idle, refusal) });
+
+  await connection.poll();
+  for (let i = 0; i < 10; i++) await connection.poll();
+
+  assert.equal(connection.view().connection, CONNECTED);
+});

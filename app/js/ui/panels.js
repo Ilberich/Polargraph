@@ -670,17 +670,27 @@ function machineCard(state, actions) {
   if (!view || view.connection === 'offline') {
     return card('Plotter', [
       el('p', { class: 'empty' },
-        'No plotter answering at this address. Check it is powered and on the ' +
-        'same network.'),
+        'Nothing answered at this address. Check the plotter is powered and on ' +
+        'the same network.'),
       el('div', { class: 'button-row' }, [
         button({ label: busy ? 'Looking\u2026' : 'Try again', onClick: actions.machineRetry }),
       ]),
     ]);
   }
 
+  // What the last poll came back with, if it came back unhappy. Separate from
+  // the error a button produced, because this one is about the machine rather
+  // than about anything the user just did.
+  const standing = view.error && !view.error.offline ? view.error.message : null;
+
   return card('Plotter', [
     view.stale && el('p', { class: 'hint' },
       'The plotter has missed a poll. This is the last it said.'),
+
+    standing && el('div', { class: 'notice notice--warn' }, [
+      el('strong', { class: 'notice__title' }, 'The plotter is answering with an error'),
+      el('span', {}, standing),
+    ]),
 
     ...machineBody(state, actions),
 
@@ -695,6 +705,10 @@ function machineCard(state, actions) {
 function machineBody(state, actions) {
   const { view } = state.machine;
   const status = view.status;
+
+  // An error arrived before any status ever did: there is nothing to show but
+  // the error itself, which the card has already put above this.
+  if (!status) return [];
 
   if (!status.positionTrusted) return homingRows(state, actions);
   if (status.job) return jobRows(state, actions, status);
