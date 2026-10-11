@@ -54,3 +54,21 @@ anything missing, truncated or extra.
 An incomplete copy is invisible from the outside: the page loads, the header
 renders — it is static HTML — and nothing works, because one missing module
 takes the whole import graph down with it.
+
+
+## Firmware sync — `sync_firmware.py`
+
+```
+python3 tools/sync_firmware.py            # copy the firmware to a board
+python3 tools/sync_firmware.py --list     # show what it would do
+python3 tools/sync_firmware.py --clean    # also remove root-level strays
+```
+
+Exists because the obvious command is wrong in a way that looks right:
+`mpremote cp server/app.py :` takes the basename and puts the file at
+`/app.py`, while `/server/app.py` keeps whatever it had. mpremote reports
+success. The board then runs a mixture of versions.
+
+The path planning is pure and tested — including that nothing is flattened to
+the root, that directories are created before the files that need them, and
+that `--clean` can never delete a module the firmware actually uses.

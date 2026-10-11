@@ -246,9 +246,10 @@ whole and synchronously, and uploads are written a chunk at a time with the
 `await` for the next chunk outside the write.
 
 **`ImportError: can't import name X`.** Two files on the board disagree about
-what the other contains, which means one of them did not actually get updated.
-MicroPython caches imported modules for the life of a session, so a soft reset
-is not always enough either.
+what the other contains, so one of them did not actually get updated. The
+usual cause is the copy going somewhere other than where you meant — see
+[updating the firmware](#updating-the-firmware), and use
+`python3 tools/sync_firmware.py` rather than copying by hand.
 
 Check what is really on the board rather than what you meant to put there:
 
@@ -256,12 +257,9 @@ Check what is really on the board rather than what you meant to put there:
 >>> open('server/app.py').read().count('check_bundle')
 ```
 
-Then **hard reset** — the button, or Ctrl-D in Thonny — before running again,
-so nothing stale is left in `sys.modules`.
-
-Worth knowing: the board's filesystem is **case-sensitive**. Uploading
-`server/API.py` leaves `server/api.py` untouched and creates a second file
-nothing imports.
+Then **hard reset** — the button, or Ctrl-D in Thonny — before running again.
+MicroPython caches imported modules for the life of a session, so a file that
+did arrive may still not be the one running.
 
 **`SyntaxError` on import, naming a line that looks fine.** MicroPython's
 compiler is narrower than CPython's, and the message says nothing about what it
@@ -305,6 +303,42 @@ geometry survives and the clock slips.
 - A plot survives a pause, a pen change and a resume.
 - `nFAULT` never trips during a full-sheet drawing.
 
+
+---
+
+## Updating the firmware
+
+```
+python3 tools/sync_firmware.py
+```
+
+Copy by hand and the obvious command is wrong in a way that looks right:
+
+```
+mpremote cp server/app.py :        # puts it at /app.py
+```
+
+`cp` takes the **basename**, so that lands at the board's root and
+`/server/app.py` keeps whatever it had. mpremote prints `Up to date: ./app.py`
+and means it. The board then runs a mixture of versions, and the symptom
+surfaces somewhere else entirely — as an `ImportError` between two files that
+are each individually fine, or as behaviour you already fixed.
+
+The correct hand-written form names both ends:
+
+```
+mpremote cp server/app.py :server/app.py
+```
+
+`sync_firmware.py` does that for every file, creates the directories first,
+and leaves the tests behind. `--list` shows what it would do without doing it;
+`--clean` also deletes the root-level strays a flattening `cp` leaves behind.
+
+Hard reset afterwards. MicroPython caches imported modules for the life of a
+session, so a file that did arrive may still not be the one running.
+
+The board's filesystem is also **case-sensitive**: `server/API.py` leaves
+`server/api.py` untouched and creates a second file nothing imports.
 
 ---
 

@@ -9,7 +9,8 @@
     "test:app": "node --test \"app/js/**/*.test.js\"",
     "test:firmware": "python3 tools/micropython_lint.py && python3 -m unittest discover -s firmware -t firmware -p \"test_*.py\" && python3 -m unittest discover -s tools -t tools -p \"test_*.py\"",
     "simulate": "python3 tools/simulate.py",
-    "lint:micropython": "python3 tools/micropython_lint.py"
+    "lint:micropython": "python3 tools/micropython_lint.py",
+    "sync:firmware": "python3 tools/sync_firmware.py"
   },
   "license": "MIT"
 }
