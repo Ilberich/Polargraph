@@ -108,7 +108,8 @@ def solve_similarity(source, target):
         )
 
     angle = math.atan2(cross, dot)
-    scale = math.hypot(dot, cross) / spread
+    # No math.hypot: MicroPython does not have it.
+    scale = math.sqrt(dot * dot + cross * cross) / spread
 
     if not MIN_SCALE <= scale <= MAX_SCALE:
         raise CalibrationError(

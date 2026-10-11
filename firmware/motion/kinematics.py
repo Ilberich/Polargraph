@@ -146,9 +146,11 @@ def belt_lengths(geometry, x_mm, y_mm):
 
     right_dx = geometry.motor_spacing_mm - x_mm
 
+    # sqrt of the sum of squares rather than math.hypot, which MicroPython
+    # does not have. See tools/micropython_lint.py.
     return (
-        math.hypot(x_mm, y_mm),
-        math.hypot(right_dx, y_mm),
+        math.sqrt(x_mm * x_mm + y_mm * y_mm),
+        math.sqrt(right_dx * right_dx + y_mm * y_mm),
     )
 
 

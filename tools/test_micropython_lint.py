@@ -39,6 +39,42 @@ class Catches(unittest.TestCase):
         self.assertTrue(findings_for("def f(x: int) -> int:\n    return x\n"))
 
 
+class CatchesMissingStdlib(unittest.TestCase):
+    """The second way this bites, and the quieter one.
+
+    These are not compile errors. The file imports perfectly and raises
+    AttributeError the first time the line is reached — for math.hypot that
+    was after the motors already worked, when /api/status became the first
+    thing to compute a belt length.
+    """
+
+    def test_math_hypot(self):
+        found = findings_for("import math\nd = math.hypot(3, 4)\n")
+
+        self.assertEqual(len(found), 1)
+        self.assertIn("math.hypot", found[0])
+        self.assertIn("math.sqrt", found[0], "and says what to use instead")
+
+    def test_os_path(self):
+        # MicroPython has no os.path at all, so this is not a missing function
+        # but a missing module.
+        self.assertTrue(findings_for("import os\np = os.path.join('a', 'b')\n"))
+
+    def test_time_monotonic(self):
+        self.assertTrue(findings_for("import time\nt = time.monotonic()\n"))
+
+    def test_an_attribute_on_something_else_is_left_alone(self):
+        # Only module.name. Anything deeper is guesswork, and a lint people
+        # route around is worse than no lint.
+        self.assertEqual(findings_for("thing = x\nn = thing.hypot\n"), [])
+
+    def test_the_functions_that_do_exist_are_not_flagged(self):
+        self.assertEqual(findings_for(
+            "import math\n"
+            "v = math.sqrt(2) + math.atan2(1, 1) + math.degrees(1) + math.cos(0)\n"
+        ), [])
+
+
 class Allows(unittest.TestCase):
     def test_ordinary_code(self):
         self.assertEqual(findings_for(

@@ -261,6 +261,19 @@ Then **hard reset** — the button, or Ctrl-D in Thonny — before running again
 MicroPython caches imported modules for the life of a session, so a file that
 did arrive may still not be the one running.
 
+**A 500 from an API endpoint.** The firmware says what went wrong in the
+response body now, so `curl http://polargraph.local/api/status` names the
+exception rather than leaving you to find a serial cable. The console carries
+the full traceback.
+
+If it is an `AttributeError` on a standard-library name, MicroPython does not
+have that function. Run `npm run lint:micropython`, which knows about the ones
+already hit, and add the new one to `MISSING_ATTRIBUTES` in
+`tools/micropython_lint.py` — these are quieter than syntax errors, because
+the file imports perfectly and only fails when the line is first reached.
+`math.hypot` surfaced after the motors already worked, when `/api/status`
+became the first thing on the board to compute a belt length.
+
 **`SyntaxError` on import, naming a line that looks fine.** MicroPython's
 compiler is narrower than CPython's, and the message says nothing about what it
 objected to. Run `npm run lint:micropython`, which walks the firmware's AST for

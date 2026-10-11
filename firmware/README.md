@@ -38,10 +38,17 @@ a line number and nothing else.
 `**` unpacking inside a dict literal is the one that bit: MicroPython simply
 does not implement it. Every test passed and the board refused the file.
 
-`tools/micropython_lint.py` walks the AST for constructs the Pico's compiler
-will not take, and runs as part of `npm test`. It is a denylist and therefore
-incomplete by nature, but it moves this class of bug from the bench to the
-test suite.
+It bites twice. **Syntax**, which fails at import with a bare `SyntaxError`
+naming a line number — `**` unpacking in a dict literal is not implemented.
+And **missing standard library**, which is quieter still: `math.hypot` does
+not exist, the file imports perfectly, and the first call raises
+`AttributeError`. That one surfaced after the motors already worked, when
+`/api/status` became the first thing on the board to compute a belt length.
+
+`tools/micropython_lint.py` walks the AST for both, and runs as part of
+`npm test`. It is a denylist and therefore incomplete by nature, but it moves
+this class of bug from the bench to the test suite — and when something new
+turns up, adding it there is the fix that stops it coming back.
 
 ### Third-party
 

@@ -223,7 +223,26 @@ def create(controller, www_root=WWW_ROOT):  # pragma: no cover - needs the Pico
     @app.route("/api/<path:rest>", methods=["GET", "POST", "PUT", "DELETE"])
     async def api_route(request, rest):
         body = request.json if request.method in ("POST", "PUT") else None
-        result = api.handle(request.method, request.path, body)
+
+        try:
+            result = api.handle(request.method, request.path, body)
+        except Exception as problem:  # noqa: BLE001 - see below
+            # The message goes over the wire, not only to the console. A
+            # plotter is a machine in another room with no screen, and an
+            # error you need a serial cable to read is an error nobody reads.
+            # There is nothing secret here: the API is on a home network and
+            # the alternative is a bare 500.
+            import sys
+
+            if hasattr(sys, "print_exception"):
+                sys.print_exception(problem)
+
+            log("500", request.method, request.path, "-", problem)
+
+            return {
+                "error": "firmware_error",
+                "message": "%s: %s" % (type(problem).__name__, problem),
+            }, 500
 
         log(result.status, request.method, request.path)
 

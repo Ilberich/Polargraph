@@ -6,14 +6,23 @@ generous compiler than the one on the Pico, and the difference does not show up
 in a test — it shows up as a `SyntaxError` at import time on the board, after
 the file has been copied across, naming a line number and nothing else.
 
-`**` unpacking inside a dict literal is the one that bit. MicroPython's
-compiler simply does not implement it. Every test passed, the simulator ran the
-same file thousands of times, and the board refused to import it.
+Two kinds of thing bite.
 
-So: walk the AST for constructs the Pico's compiler will not take. This is a
-denylist and therefore incomplete by nature — it knows about what has been hit
-and what is documented, not about everything. It is still the difference
-between finding these at `npm test` and finding them at a bench.
+**Syntax.** `**` unpacking inside a dict literal is not implemented by
+MicroPython's compiler. Every test passed, the simulator ran the same file
+thousands of times, and the board refused to import it with a bare
+`SyntaxError` naming a line number.
+
+**Missing standard library.** `math.hypot` does not exist on MicroPython. That
+one is not even an import error: the file loads, and the first call raises
+`AttributeError` — which for `hypot` meant the motors worked, the web server
+worked, and `/api/status` returned 500, because that endpoint happened to be
+the first thing to compute a belt length.
+
+So: walk the AST for both. This is a denylist and therefore incomplete by
+nature — it knows about what has been hit and what is documented, not about
+everything. It is still the difference between finding these at `npm test` and
+finding them at a bench.
 """
 
 import ast
@@ -25,6 +34,36 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 
 #: Directories whose Python has to run on the board.
 FIRMWARE = os.path.join(ROOT, "firmware")
+
+#: Standard-library names CPython has and MicroPython does not.
+#:
+#: The second way this bites, after syntax. These are not compile errors — the
+#: file imports perfectly and raises `AttributeError` the first time that line
+#: is reached, which can be a long way into bring-up. `math.hypot` was reached
+#: for the first time by `/api/status`, after the motors already worked.
+#:
+#: Conservative on purpose: only names confirmed absent, since a false
+#: positive here makes people route around the lint.
+MISSING_ATTRIBUTES = {
+    "math": (
+        "hypot", "dist", "prod", "comb", "perm", "isqrt", "remainder",
+        "nextafter", "ulp", "tau",
+    ),
+    "os": ("path", "walk", "makedirs", "replace", "scandir"),
+    "time": ("monotonic", "perf_counter", "strftime", "process_time"),
+}
+
+#: What to use instead, where there is an obvious answer.
+INSTEAD = {
+    "math.hypot": "math.sqrt(a * a + b * b)",
+    "math.dist": "math.sqrt of the differences",
+    "math.isqrt": "int(math.sqrt(n))",
+    "os.path": "string joins; MicroPython has no os.path at all",
+    "os.walk": "os.listdir and recursion",
+    "os.makedirs": "os.mkdir, one level at a time",
+    "time.monotonic": "time.ticks_ms and time.ticks_diff",
+    "time.perf_counter": "time.ticks_us and time.ticks_diff",
+}
 
 
 class Finding:
@@ -78,6 +117,21 @@ class Scanner(ast.NodeVisitor):
         for value in node.values:
             if isinstance(value, ast.FormattedValue) and value.format_spec is None:
                 continue
+
+        self.generic_visit(node)
+
+    def visit_Attribute(self, node):
+        # Only `module.name`, not `something.attribute`: this is about the
+        # standard library, and anything deeper is guesswork.
+        if isinstance(node.value, ast.Name):
+            missing = MISSING_ATTRIBUTES.get(node.value.id)
+
+            if missing and node.attr in missing:
+                name = "%s.%s" % (node.value.id, node.attr)
+                advice = INSTEAD.get(name)
+
+                self.report(node, "%s does not exist on MicroPython%s" % (
+                    name, "; use %s" % advice if advice else ""))
 
         self.generic_visit(node)
 
